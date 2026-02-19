@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0e7490"/>
+      <stop offset="100%" stop-color="#164e63"/>
+    </linearGradient>
+    <linearGradient id="cable" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#22d3ee"/>
+    </linearGradient>
+  </defs>
+  <!-- Background rounded rect -->
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+  <!-- Network nodes -->
+  <circle cx="160" cy="160" r="44" fill="#0f172a" stroke="#06b6d4" stroke-width="6"/>
+  <circle cx="352" cy="160" r="44" fill="#0f172a" stroke="#f59e0b" stroke-width="6"/>
+  <circle cx="160" cy="352" r="44" fill="#0f172a" stroke="#10b981" stroke-width="6"/>
+  <circle cx="352" cy="352" r="44" fill="#0f172a" stroke="#ef4444" stroke-width="6"/>
+  <!-- Connection wires -->
+  <path d="M 204 160 C 256 120, 256 120, 308 160" stroke="url(#cable)" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.8"/>
+  <path d="M 160 204 C 120 256, 120 256, 160 308" stroke="url(#cable)" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.8"/>
+  <path d="M 204 352 C 256 392, 256 392, 308 352" stroke="url(#cable)" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.8"/>
+  <path d="M 352 204 C 392 256, 392 256, 352 308" stroke="url(#cable)" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.8"/>
+  <path d="M 195 195 C 256 256, 256 256, 317 317" stroke="url(#cable)" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.5"/>
+  <path d="M 317 195 C 256 256, 256 256, 195 317" stroke="url(#cable)" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.5"/>
+  <!-- Port dots inside nodes -->
+  <circle cx="148" cy="152" r="6" fill="#06b6d4"/>
+  <circle cx="168" cy="152" r="6" fill="#06b6d4"/>
+  <circle cx="148" cy="168" r="6" fill="#06b6d4"/>
+  <circle cx="168" cy="168" r="6" fill="#06b6d4"/>
+  <circle cx="340" cy="152" r="6" fill="#f59e0b"/>
+  <circle cx="360" cy="152" r="6" fill="#f59e0b"/>
+  <circle cx="340" cy="168" r="6" fill="#f59e0b"/>
+  <circle cx="360" cy="168" r="6" fill="#f59e0b"/>
+  <circle cx="148" cy="344" r="6" fill="#10b981"/>
+  <circle cx="168" cy="344" r="6" fill="#10b981"/>
+  <circle cx="148" cy="360" r="6" fill="#10b981"/>
+  <circle cx="168" cy="360" r="6" fill="#10b981"/>
+  <circle cx="340" cy="344" r="6" fill="#ef4444"/>
+  <circle cx="360" cy="344" r="6" fill="#ef4444"/>
+  <circle cx="340" cy="360" r="6" fill="#ef4444"/>
+  <circle cx="360" cy="360" r="6" fill="#ef4444"/>
+</svg>

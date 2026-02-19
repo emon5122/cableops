@@ -1,0 +1,1 @@
+ALTER TABLE "devices" ADD COLUMN "device_type" text DEFAULT 'switch' NOT NULL;
