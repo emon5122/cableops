@@ -1,11 +1,53 @@
-import { eq } from "drizzle-orm"
+import { eq, inArray } from "drizzle-orm"
 import { z } from "zod"
 
 import { db } from "@/db"
 import * as schema from "@/db/schema"
+import { getBroadcastDomain, type ConnectionRow, type DeviceRow } from "@/lib/topology-types"
 import { createTRPCRouter, publicProcedure } from "./init"
 
 import type { TRPCRouterRecord } from "@trpc/server"
+
+/* ── IP Validation Helpers (server-side) ── */
+
+/** Parse a plain IPv4 like "192.168.1.1" into a 32-bit number */
+function parseIpv4(ip: string): number | null {
+	const m = ip.trim().match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+	if (!m) return null
+	const o = [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])]
+	if (o.some((v) => v > 255)) return null
+	return ((o[0] << 24) | (o[1] << 16) | (o[2] << 8) | o[3]) >>> 0
+}
+
+/** Parse "1.2.3.4/24" or plain "1.2.3.4" → { ip, cidr, network, mask } */
+function parseIpMaybeCidr(raw: string): { ip: number; cidr: number; network: number; mask: number } | null {
+	const mCidr = raw.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/)
+	if (mCidr) {
+		const o = [Number(mCidr[1]), Number(mCidr[2]), Number(mCidr[3]), Number(mCidr[4])]
+		if (o.some((v) => v > 255)) return null
+		const cidr = Number(mCidr[5])
+		if (cidr > 32) return null
+		const ip = ((o[0] << 24) | (o[1] << 16) | (o[2] << 8) | o[3]) >>> 0
+		const mask = cidr > 0 ? (~0 << (32 - cidr)) >>> 0 : 0
+		return { ip, cidr, network: (ip & mask) >>> 0, mask }
+	}
+	const plain = parseIpv4(raw)
+	if (plain !== null) {
+		const mask = (~0 << 8) >>> 0 /* /24 default */
+		return { ip: plain, cidr: 24, network: (plain & mask) >>> 0, mask }
+	}
+	return null
+}
+
+/** Validate an IP string is well-formed (plain or CIDR) */
+function isValidIp(ip: string): boolean {
+	return parseIpMaybeCidr(ip) !== null
+}
+
+/** Strip CIDR suffix to get the plain IP part */
+function stripCidr(ip: string): string {
+	return ip.split("/")[0]
+}
 
 /* ── Workspaces ── */
 
@@ -81,10 +123,18 @@ const devicesRouter = {
 				name: z.string().min(1),
 				deviceType: z.string().default("switch"),
 				color: z.string(),
-				portCount: z.number().int().min(1).max(9999),
+				portCount: z.number().int().min(0).max(9999),
 				positionX: z.number().int().optional(),
 				positionY: z.number().int().optional(),
 				maxSpeed: z.string().optional(),
+				managementIp: z.string().nullable().optional(),
+				natEnabled: z.boolean().optional(),
+				gateway: z.string().nullable().optional(),
+				dhcpEnabled: z.boolean().optional(),
+				dhcpRangeStart: z.string().nullable().optional(),
+				dhcpRangeEnd: z.string().nullable().optional(),
+				ssid: z.string().nullable().optional(),
+				wifiPassword: z.string().nullable().optional(),
 			}),
 		)
 		.mutation(async ({ input }) => {
@@ -101,6 +151,14 @@ const devicesRouter = {
 					positionX: input.positionX ?? 100,
 					positionY: input.positionY ?? 100,
 					maxSpeed: input.maxSpeed ?? null,
+					managementIp: input.managementIp ?? null,
+					natEnabled: input.natEnabled ?? false,
+					gateway: input.gateway ?? null,
+					dhcpEnabled: input.dhcpEnabled ?? false,
+					dhcpRangeStart: input.dhcpRangeStart ?? null,
+					dhcpRangeEnd: input.dhcpRangeEnd ?? null,
+					ssid: input.ssid ?? null,
+					wifiPassword: input.wifiPassword ?? null,
 				})
 				.returning()
 			const row = rows[0]
@@ -115,12 +173,48 @@ const devicesRouter = {
 				name: z.string().min(1).optional(),
 				deviceType: z.string().optional(),
 				color: z.string().optional(),
-				portCount: z.number().int().min(1).max(9999).optional(),
+				portCount: z.number().int().min(0).max(9999).optional(),
 				maxSpeed: z.string().nullable().optional(),
+				managementIp: z.string().nullable().optional(),
+				natEnabled: z.boolean().optional(),
+				gateway: z.string().nullable().optional(),
+				dhcpEnabled: z.boolean().optional(),
+				dhcpRangeStart: z.string().nullable().optional(),
+				dhcpRangeEnd: z.string().nullable().optional(),
+				ssid: z.string().nullable().optional(),
+				wifiPassword: z.string().nullable().optional(),
 			}),
 		)
 		.mutation(async ({ input }) => {
 			const { id, ...fields } = input
+
+			/* Validate management IP format */
+			if (fields.managementIp && !isValidIp(fields.managementIp)) {
+				throw new Error("Invalid management IP format")
+			}
+
+			/* Validate gateway IP format */
+			if (fields.gateway && !isValidIp(fields.gateway)) {
+				throw new Error("Invalid gateway IP format")
+			}
+
+			/* Validate DHCP range */
+			if (fields.dhcpRangeStart || fields.dhcpRangeEnd) {
+				const start = fields.dhcpRangeStart ?? null
+				const end = fields.dhcpRangeEnd ?? null
+				if (start && !parseIpv4(start)) throw new Error("Invalid DHCP range start IP")
+				if (end && !parseIpv4(end)) throw new Error("Invalid DHCP range end IP")
+				if (start && end) {
+					const s = parseIpv4(start)!
+					const e = parseIpv4(end)!
+					if (s > e) throw new Error("DHCP range start must be less than or equal to end")
+					/* Ensure same /24 subnet */
+					if ((s >>> 8) !== (e >>> 8)) {
+						throw new Error("DHCP range start and end must be in the same /24 subnet")
+					}
+				}
+			}
+
 			const rows = await db
 				.update(schema.devices)
 				.set(fields)
@@ -168,13 +262,58 @@ const connectionsRouter = {
 			z.object({
 				workspaceId: z.string(),
 				deviceAId: z.string(),
-				portA: z.number().int().min(1),
+				portA: z.number().int().min(0),
 				deviceBId: z.string(),
-				portB: z.number().int().min(1),
+				portB: z.number().int().min(0),
 				speed: z.string().optional(),
+				connectionType: z.enum(["wired", "wifi"]).default("wired"),
 			}),
 		)
 		.mutation(async ({ input }) => {
+			/* Prevent self-connection */
+			if (input.deviceAId === input.deviceBId) {
+				throw new Error("Cannot connect a device to itself")
+			}
+
+			/* For wired connections, check port isn't already occupied */
+			if (input.connectionType === "wired") {
+				const existing = await db
+					.select()
+					.from(schema.connections)
+					.where(eq(schema.connections.workspaceId, input.workspaceId))
+				for (const conn of existing) {
+					if (
+						(conn.deviceAId === input.deviceAId && conn.portA === input.portA) ||
+						(conn.deviceBId === input.deviceAId && conn.portB === input.portA)
+					) {
+						throw new Error(`Port ${input.portA} on device A is already connected`)
+					}
+					if (
+						(conn.deviceAId === input.deviceBId && conn.portA === input.portB) ||
+						(conn.deviceBId === input.deviceBId && conn.portB === input.portB)
+					) {
+						throw new Error(`Port ${input.portB} on device B is already connected`)
+					}
+				}
+			}
+
+			/* For WiFi, prevent duplicate WiFi link between same two devices */
+			if (input.connectionType === "wifi") {
+				const existing = await db
+					.select()
+					.from(schema.connections)
+					.where(eq(schema.connections.workspaceId, input.workspaceId))
+				const duplicate = existing.find(
+					(c) =>
+						c.connectionType === "wifi" &&
+						((c.deviceAId === input.deviceAId && c.deviceBId === input.deviceBId) ||
+							(c.deviceAId === input.deviceBId && c.deviceBId === input.deviceAId)),
+				)
+				if (duplicate) {
+					throw new Error("These devices are already connected via WiFi")
+				}
+			}
+
 			const id = crypto.randomUUID()
 			const rows = await db
 				.insert(schema.connections)
@@ -186,6 +325,7 @@ const connectionsRouter = {
 					deviceBId: input.deviceBId,
 					portB: input.portB,
 					speed: input.speed ?? null,
+					connectionType: input.connectionType,
 				})
 				.returning()
 			const row = rows[0]
@@ -218,7 +358,7 @@ const portConfigsRouter = {
 		.input(
 			z.object({
 				deviceId: z.string(),
-				portNumber: z.number().int().min(1),
+				portNumber: z.number().int().min(0),
 				alias: z.string().nullable().optional(),
 				reserved: z.boolean().optional(),
 				reservedLabel: z.string().nullable().optional(),
@@ -226,9 +366,64 @@ const portConfigsRouter = {
 				vlan: z.number().int().min(1).max(4094).nullable().optional(),
 				ipAddress: z.string().nullable().optional(),
 				macAddress: z.string().nullable().optional(),
+				portMode: z.string().nullable().optional(),
+				portRole: z.string().nullable().optional(),
 			}),
 		)
 		.mutation(async ({ input }) => {
+			/* ── IP validation ── */
+			if (input.ipAddress) {
+				if (!isValidIp(input.ipAddress)) {
+					throw new Error(`Invalid IP address format: ${input.ipAddress}`)
+				}
+
+				/* Check for duplicate IP within the same broadcast domain (not whole workspace).
+				   Two isolated networks in the same workspace CAN reuse the same IP. */
+				const deviceRows = await db
+					.select()
+					.from(schema.devices)
+					.where(eq(schema.devices.id, input.deviceId))
+				const device = deviceRows[0]
+				if (device) {
+					/* Load workspace devices and connections */
+					const wsDevices = await db
+						.select()
+						.from(schema.devices)
+						.where(eq(schema.devices.workspaceId, device.workspaceId))
+					const wsConns = await db
+						.select()
+						.from(schema.connections)
+						.where(eq(schema.connections.workspaceId, device.workspaceId))
+
+					/* Get the broadcast domain (same L2 segment) for this device */
+					const domain = getBroadcastDomain(
+						input.deviceId,
+						wsConns as ConnectionRow[],
+						wsDevices as DeviceRow[],
+					)
+					const domainDeviceIds = Array.from(domain)
+
+					if (domainDeviceIds.length > 0) {
+						const domainConfigs = await db
+							.select()
+							.from(schema.portConfigs)
+							.where(inArray(schema.portConfigs.deviceId, domainDeviceIds))
+
+						const proposedPlain = stripCidr(input.ipAddress).trim()
+						for (const pc of domainConfigs) {
+							/* Skip the same device+port (we're updating it) */
+							if (pc.deviceId === input.deviceId && pc.portNumber === input.portNumber) continue
+							if (!pc.ipAddress) continue
+							const existingPlain = stripCidr(pc.ipAddress).trim()
+							if (existingPlain === proposedPlain) {
+								throw new Error(`IP ${proposedPlain} is already assigned to another device in this network segment`)
+							}
+						}
+					}
+				}
+			}
+
+			/* ── Upsert logic ── */
 			const existing = await db
 				.select()
 				.from(schema.portConfigs)
@@ -262,6 +457,8 @@ const portConfigsRouter = {
 					vlan: input.vlan ?? null,
 					ipAddress: input.ipAddress ?? null,
 					macAddress: input.macAddress ?? null,
+					portMode: input.portMode ?? null,
+					portRole: input.portRole ?? null,
 				})
 				.returning()
 			return rows[0] ?? null

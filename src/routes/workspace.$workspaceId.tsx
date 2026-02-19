@@ -5,7 +5,7 @@ import WorkspaceSidebar from "@/components/workspace/WorkspaceSidebar"
 import { useTRPC } from "@/integrations/trpc/react"
 import { authClient } from "@/lib/auth-client"
 import type { DeviceType, PortConfigRow } from "@/lib/topology-types"
-import { isPortConnected } from "@/lib/topology-types"
+import { DEVICE_CAPABILITIES, getNextDhcpIp, isPortConnected } from "@/lib/topology-types"
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { Cable, Check, Lightbulb, Network, Pencil, Table2, X } from "lucide-react"
@@ -163,12 +163,22 @@ function WorkspacePage() {
 				return
 			}
 
+			/* Auto-detect WiFi: if one device is wifiHost and other is wifiClient */
+			const devA = devices.find((d) => d.id === selectedPort.deviceId)
+			const devB = devices.find((d) => d.id === deviceId)
+			const capsA = devA ? DEVICE_CAPABILITIES[devA.deviceType as DeviceType] : null
+			const capsB = devB ? DEVICE_CAPABILITIES[devB.deviceType as DeviceType] : null
+			const isWifi =
+				(capsA?.wifiHost && capsB?.wifiClient) ||
+				(capsB?.wifiHost && capsA?.wifiClient)
+
 			addConnection.mutate({
 				workspaceId,
 				deviceAId: selectedPort.deviceId,
 				portA: selectedPort.portNumber,
 				deviceBId: deviceId,
 				portB: portNumber,
+				connectionType: isWifi ? "wifi" : "wired",
 			})
 			setSelectedPort(null)
 		},
@@ -187,6 +197,8 @@ function WorkspacePage() {
 			reservedLabel?: string | null
 			ipAddress?: string | null
 			macAddress?: string | null
+			portMode?: string | null
+			portRole?: string | null
 		}) => {
 			upsertPortConfig.mutate(config)
 		},
@@ -255,6 +267,35 @@ function WorkspacePage() {
 				onDeviceSelect={setSelectedDeviceId}
 				onPortClick={handlePortClick}
 				onDeleteConnection={(id) => deleteConnection.mutate({ id })}
+				onWifiConnect={(clientDeviceId, hostDeviceId) => {
+					addConnection.mutate(
+						{
+							workspaceId,
+							deviceAId: clientDeviceId,
+							portA: 0,
+							deviceBId: hostDeviceId,
+							portB: 0,
+							connectionType: "wifi",
+						},
+						{
+							onSuccess: () => {
+								/* Auto-assign DHCP IP to the client */
+								const hostDev = devices.find((d) => d.id === hostDeviceId)
+								if (hostDev) {
+									const ip = getNextDhcpIp(hostDev, connections, devices, portConfigs)
+									if (ip) {
+										upsertPortConfig.mutate({
+											deviceId: clientDeviceId,
+											portNumber: 0,
+											ipAddress: ip,
+										})
+									}
+								}
+							},
+						},
+					)
+				}}
+				portConfigs={portConfigs}
 				searchQuery={searchQuery}
 				onSearchChange={setSearchQuery}
 			/>
@@ -369,6 +410,8 @@ function WorkspacePage() {
 						selectedDeviceId={selectedDeviceId}
 						onUpdatePortConfig={handleUpdatePortConfig}
 						onDisconnect={handleDisconnect}
+						onUpdateDevice={(id, fields) => updateDevice.mutate({ id, ...fields })}
+						onDeleteDevice={(id) => deleteDevice.mutate({ id })}
 						onAddAnnotation={(ann) =>
 							createAnnotation.mutate({ workspaceId, ...ann })
 						}

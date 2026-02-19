@@ -1,6 +1,8 @@
+import DeviceContextMenu from "@/components/topology/DeviceContextMenu"
 import DeviceIcon from "@/components/topology/DeviceIcon"
 import PortContextMenu from "@/components/topology/PortContextMenu"
 import {
+	DEVICE_CAPABILITIES,
 	DEVICE_NODE_WIDTH,
 	PORT_SIZE,
 	getDeviceNodeHeight,
@@ -11,6 +13,7 @@ import {
 	type AnnotationRow,
 	type ConnectionRow,
 	type DeviceRow,
+	type DeviceType,
 	type DragState,
 	type PortConfigRow,
 	type PortSelection,
@@ -42,8 +45,20 @@ interface TopologyCanvasProps {
 		vlan?: number | null
 		reserved?: boolean
 		reservedLabel?: string | null
+		portRole?: string | null
 	}) => void
 	onDisconnect: (connectionId: string) => void
+	onUpdateDevice: (id: string, fields: {
+		managementIp?: string | null
+		natEnabled?: boolean
+		gateway?: string | null
+		dhcpEnabled?: boolean
+		dhcpRangeStart?: string | null
+		dhcpRangeEnd?: string | null
+		ssid?: string | null
+		wifiPassword?: string | null
+	}) => void
+	onDeleteDevice: (id: string) => void
 	onAddAnnotation: (ann: { x: number; y: number; kind: "rect" | "label"; label?: string }) => void
 	onUpdateAnnotation: (id: string, fields: { x?: number; y?: number; width?: number; height?: number; label?: string | null; color?: string }) => void
 	onDeleteAnnotation: (id: string) => void
@@ -61,6 +76,8 @@ export default function TopologyCanvas({
 	selectedDeviceId,
 	onUpdatePortConfig,
 	onDisconnect,
+	onUpdateDevice,
+	onDeleteDevice,
 	onAddAnnotation,
 	onUpdateAnnotation,
 	onDeleteAnnotation,
@@ -75,6 +92,7 @@ export default function TopologyCanvas({
 		startDeviceY: 0,
 	})
 	const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+	const [deviceMenu, setDeviceMenu] = useState<{ deviceId: string; x: number; y: number } | null>(null)
 
 	/* ── Annotation drag / resize ── */
 	const [annDrag, setAnnDrag] = useState<{
@@ -218,6 +236,7 @@ export default function TopologyCanvas({
 			if (e.target === containerRef.current || e.target === e.currentTarget) {
 				onDeviceSelect(null)
 				setContextMenu(null)
+				setDeviceMenu(null)
 				setSelectedAnnotation(null)
 				setCanvasMenu(null)
 				setSelectedWire(null)
@@ -268,6 +287,11 @@ export default function TopologyCanvas({
 			const device = devices.find((d) => d.id === deviceId)
 			if (!device) return null
 			const pos = getDevicePos(device)
+			/* Port 0 = virtual WiFi interface → center of device node */
+			if (portNumber === 0) {
+				const nodeH = getDeviceNodeHeight(device.portCount)
+				return { x: pos.x + DEVICE_NODE_WIDTH / 2, y: pos.y + nodeH / 2 }
+			}
 			const portPos = getPortPosition(portNumber - 1, device.portCount, DEVICE_NODE_WIDTH)
 			return { x: pos.x + portPos.x, y: pos.y + portPos.y }
 		},
@@ -534,23 +558,38 @@ export default function TopologyCanvas({
 							}`}
 							style={{ background: "var(--app-surface)", height: "100%" }}
 						>
-							{/* Header */}
+							{/* Header — right-click opens device-level context menu */}
 							<div
 								className="px-3 py-2.5 rounded-t-[10px] cursor-grab active:cursor-grabbing flex items-center gap-2"
 								style={{ backgroundColor: device.color }}
 								onMouseDown={(e) => handleMouseDown(e, device)}
+								onContextMenu={(e) => {
+									e.preventDefault()
+									e.stopPropagation()
+									setDeviceMenu({ deviceId: device.id, x: e.clientX, y: e.clientY })
+								}}
 							>
 								<DeviceIcon type={device.deviceType} color={textColor} size={18} />
 								<span className="font-bold text-sm truncate flex-1" style={{ color: textColor }}>
 									{device.name}
 								</span>
-								<span className="text-xs opacity-80 font-mono" style={{ color: textColor }}>
-									{device.portCount}p
-								</span>
+								{device.portCount > 0 ? (
+									<span className="text-xs opacity-80 font-mono" style={{ color: textColor }}>
+										{device.portCount}p
+									</span>
+								) : (
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={textColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-80">
+										<path d="M5 12.55a11 11 0 0 1 14.08 0" />
+										<path d="M1.42 9a16 16 0 0 1 21.16 0" />
+										<path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+										<circle cx="12" cy="20" r="1" fill={textColor} />
+									</svg>
+								)}
 							</div>
 
 							{/* Port grid */}
-							<div className="p-2 flex flex-wrap gap-1 justify-center">
+							{device.portCount > 0 ? (
+								<div className="p-2 flex flex-wrap gap-1 justify-center">
 								{Array.from({ length: device.portCount }, (_, i) => {
 									const pNum = i + 1
 									const connected = isPortConnected(device.id, pNum, connections)
@@ -596,6 +635,16 @@ export default function TopologyCanvas({
 									)
 								})}
 							</div>
+							) : (
+								<div className="p-3 flex items-center justify-center gap-1.5 text-xs" style={{ color: "var(--app-text-dim)" }}>
+									<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+										<path d="M5 12.55a11 11 0 0 1 14.08 0" />
+										<path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+										<circle cx="12" cy="20" r="1" fill="currentColor" />
+									</svg>
+									<span>WiFi</span>
+								</div>
+							)}
 						</div>
 					</div>
 				)
@@ -653,6 +702,17 @@ export default function TopologyCanvas({
 					const midX = (from.x + to.x) / 2
 					const midY = (from.y + to.y) / 2
 
+					/* Determine if this is a WiFi connection */
+					const devA = devices.find((d) => d.id === conn.deviceAId)
+					const devB = devices.find((d) => d.id === conn.deviceBId)
+					const capsA = devA ? DEVICE_CAPABILITIES[devA.deviceType as DeviceType] : null
+					const capsB = devB ? DEVICE_CAPABILITIES[devB.deviceType as DeviceType] : null
+					const isWifi =
+						conn.connectionType === "wifi" ||
+						(!conn.connectionType &&
+							((capsA?.wifiHost && capsB?.wifiClient) ||
+							 (capsB?.wifiHost && capsA?.wifiClient)))
+
 					return (
 						<g key={conn.id}>
 							{/* Invisible fat hit area for clicking */}
@@ -675,6 +735,7 @@ export default function TopologyCanvas({
 								fill="none"
 								opacity={isWireSel ? 0.35 : 0.15}
 								strokeLinecap="round"
+								strokeDasharray={isWifi ? "8 6" : undefined}
 								style={{ pointerEvents: "none" }}
 							/>
 							{/* Main wire */}
@@ -685,8 +746,18 @@ export default function TopologyCanvas({
 								fill="none"
 								opacity={0.85}
 								strokeLinecap="round"
+								strokeDasharray={isWifi ? "8 6" : undefined}
 								style={{ pointerEvents: "none" }}
 							/>
+							{/* WiFi indicator at midpoint */}
+							{isWifi && !isWireSel && (
+								<g transform={`translate(${midX},${midY})`} style={{ pointerEvents: "none" }}>
+									<circle r={9} fill="var(--app-surface, #1e293b)" stroke="var(--app-border, #334155)" strokeWidth={1} />
+									<path d="M-4,-1a6 6 0 0 1 8 0" stroke="#38bdf8" strokeWidth={1.3} fill="none" />
+									<path d="M-2.5,1a3.5 3.5 0 0 1 5 0" stroke="#38bdf8" strokeWidth={1.3} fill="none" />
+									<circle cx={0} cy={3} r={1} fill="#38bdf8" />
+								</g>
+							)}
 							{/* Speed label at midpoint */}
 							{conn.speed && (
 								<text
@@ -755,12 +826,29 @@ export default function TopologyCanvas({
 					device={contextMenuDevice}
 					connections={connections}
 					devices={devices}
+					portConfigs={portConfigs}
 					portConfig={getPortConfig(contextMenu.deviceId, contextMenu.portNumber)}
 					onClose={() => setContextMenu(null)}
 					onUpdatePortConfig={onUpdatePortConfig}
 					onDisconnect={onDisconnect}
 				/>
 			)}
+
+			{/* Device context menu — z-index 100 */}
+			{deviceMenu && (() => {
+				const dev = devices.find((d) => d.id === deviceMenu.deviceId)
+				if (!dev) return null
+				return (
+					<DeviceContextMenu
+						x={deviceMenu.x}
+						y={deviceMenu.y}
+						device={dev}
+						onClose={() => setDeviceMenu(null)}
+						onUpdateDevice={onUpdateDevice}
+						onDeleteDevice={onDeleteDevice}
+					/>
+				)
+			})()}
 
 			{/* Canvas context menu (add annotation) — z-index 100 */}
 			{canvasMenu && (

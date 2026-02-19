@@ -72,7 +72,7 @@ export default function DeviceIcon({
 				</svg>
 			)
 
-		case "phone":
+		case "ip-phone":
 			return (
 				<svg {...props}>
 					<rect x="5" y="2" width="14" height="20" rx="2" />
@@ -83,6 +83,15 @@ export default function DeviceIcon({
 					<circle cx="9" cy="19" r="0.8" fill={color} stroke="none" />
 					<circle cx="12" cy="19" r="0.8" fill={color} stroke="none" />
 					<circle cx="15" cy="19" r="0.8" fill={color} stroke="none" />
+				</svg>
+			)
+
+		case "smartphone":
+			return (
+				<svg {...props}>
+					<rect x="6" y="2" width="12" height="20" rx="3" />
+					<path d="M10 4h4" />
+					<circle cx="12" cy="19" r="1" fill={color} stroke="none" />
 				</svg>
 			)
 
@@ -118,7 +127,100 @@ export default function DeviceIcon({
 		case "cloud":
 			return (
 				<svg {...props}>
-					<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+					<circle cx="12" cy="12" r="10" />
+					<path d="M2 12h20" />
+					<path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+				</svg>
+			)
+
+		case "hub":
+			return (
+				<svg {...props}>
+					<rect x="2" y="8" width="20" height="8" rx="2" />
+					<circle cx="6" cy="12" r="1.5" fill={color} stroke="none" />
+					<circle cx="10" cy="12" r="1.5" fill={color} stroke="none" />
+					<circle cx="14" cy="12" r="1.5" fill={color} stroke="none" />
+					<circle cx="18" cy="12" r="1.5" fill={color} stroke="none" />
+				</svg>
+			)
+
+		case "patch-panel":
+			return (
+				<svg {...props}>
+					<rect x="2" y="7" width="20" height="10" rx="1" />
+					<rect x="4" y="9" width="3" height="2.5" rx="0.5" />
+					<rect x="8.5" y="9" width="3" height="2.5" rx="0.5" />
+					<rect x="13" y="9" width="3" height="2.5" rx="0.5" />
+					<rect x="17.5" y="9" width="3" height="2.5" rx="0.5" />
+					<rect x="4" y="13" width="3" height="2.5" rx="0.5" />
+					<rect x="8.5" y="13" width="3" height="2.5" rx="0.5" />
+					<rect x="13" y="13" width="3" height="2.5" rx="0.5" />
+					<rect x="17.5" y="13" width="3" height="2.5" rx="0.5" />
+				</svg>
+			)
+
+		case "nas":
+			return (
+				<svg {...props}>
+					<rect x="4" y="2" width="16" height="20" rx="2" />
+					<rect x="7" y="5" width="10" height="3" rx="0.5" />
+					<rect x="7" y="10" width="10" height="3" rx="0.5" />
+					<rect x="7" y="15" width="10" height="3" rx="0.5" />
+					<circle cx="15" cy="6.5" r="0.8" fill={color} stroke="none" />
+					<circle cx="15" cy="11.5" r="0.8" fill={color} stroke="none" />
+					<circle cx="15" cy="16.5" r="0.8" fill={color} stroke="none" />
+				</svg>
+			)
+
+		case "printer":
+			return (
+				<svg {...props}>
+					<path d="M6 9V2h12v7" />
+					<rect x="3" y="9" width="18" height="8" rx="1" />
+					<rect x="6" y="17" width="12" height="5" rx="1" />
+					<circle cx="17" cy="12" r="1" fill={color} stroke="none" />
+				</svg>
+			)
+
+		case "load-balancer":
+			return (
+				<svg {...props}>
+					<circle cx="12" cy="4" r="2.5" />
+					<circle cx="5" cy="18" r="2.5" />
+					<circle cx="12" cy="18" r="2.5" />
+					<circle cx="19" cy="18" r="2.5" />
+					<path d="M12 6.5v9" />
+					<path d="M10 8l-5 8" />
+					<path d="M14 8l5 8" />
+				</svg>
+			)
+
+		case "modem":
+			return (
+				<svg {...props}>
+					<rect x="3" y="6" width="18" height="12" rx="2" />
+					<circle cx="7" cy="12" r="1" fill={color} stroke="none" />
+					<circle cx="10.5" cy="12" r="1" fill={color} stroke="none" />
+					<path d="M14 10v4" />
+					<path d="M17 9v6" />
+					<path d="M10 3l2 3 2-3" />
+				</svg>
+			)
+
+		case "laptop":
+			return (
+				<svg {...props}>
+					<path d="M4 19h16" />
+					<rect x="4" y="5" width="16" height="12" rx="2" />
+					<path d="M2 19l2 2h16l2-2" />
+				</svg>
+			)
+
+		case "tablet":
+			return (
+				<svg {...props}>
+					<rect x="5" y="2" width="14" height="20" rx="2" />
+					<path d="M10 18h4" />
 				</svg>
 			)
 

@@ -1,6 +1,7 @@
-import type { ConnectionRow, DeviceRow, PortConfigRow } from "@/lib/topology-types"
-import { negotiatedSpeed } from "@/lib/topology-types"
-import { ArrowLeftRight, Trash2 } from "lucide-react"
+import type { ConnectionRow, DeviceRow, DeviceType, PortConfigRow } from "@/lib/topology-types"
+import { DEVICE_TYPE_LABELS, negotiatedSpeed } from "@/lib/topology-types"
+import { ArrowLeftRight, Cable, Layers, Monitor, Trash2, Zap } from "lucide-react"
+import { useMemo } from "react"
 
 interface ConnectionsTableProps {
 	connections: ConnectionRow[]
@@ -39,6 +40,24 @@ export default function ConnectionsTable({
 		)
 	})
 
+	/* ── Stats ── */
+	const stats = useMemo(() => {
+		const totalPorts = devices.reduce((s, d) => s + d.portCount, 0)
+		const usedPorts = new Set<string>()
+		for (const c of connections) {
+			usedPorts.add(`${c.deviceAId}:${c.portA}`)
+			usedPorts.add(`${c.deviceBId}:${c.portB}`)
+		}
+		const utilPct = totalPorts > 0 ? Math.round((usedPorts.size / totalPorts) * 100) : 0
+
+		const vlans = new Set<number>()
+		for (const pc of portConfigs) {
+			if (pc.vlan != null) vlans.add(pc.vlan)
+		}
+
+		return { totalDevices: devices.length, totalConnections: connections.length, utilPct, totalPorts, usedPorts: usedPorts.size, vlanCount: vlans.size }
+	}, [devices, connections, portConfigs])
+
 	if (connections.length === 0) {
 		return (
 			<div className="flex flex-col items-center justify-center py-12 text-(--app-text-muted)">
@@ -53,6 +72,23 @@ export default function ConnectionsTable({
 
 	return (
 		<div className="overflow-x-auto">
+			{/* Stats cards */}
+			<div className="grid grid-cols-4 gap-2 px-3 py-3 border-b border-(--app-border)">
+				{([
+					{ icon: Monitor, label: "Devices", value: stats.totalDevices, color: "text-blue-400" },
+					{ icon: Cable, label: "Links", value: stats.totalConnections, color: "text-emerald-400" },
+					{ icon: Zap, label: "Port Util", value: `${stats.utilPct}%`, sub: `${stats.usedPorts}/${stats.totalPorts}`, color: "text-amber-400" },
+					{ icon: Layers, label: "VLANs", value: stats.vlanCount, color: "text-cyan-400" },
+				] as const).map((s) => (
+					<div key={s.label} className="bg-(--app-surface) rounded-lg border border-(--app-border) px-3 py-2">
+						<div className="flex items-center gap-1.5 mb-1">
+							<s.icon size={12} className={s.color} />
+							<span className="text-[10px] text-(--app-text-muted) uppercase tracking-wider">{s.label}</span>
+						</div>
+						<div className="text-lg font-bold text-(--app-text) leading-tight">{s.value}</div>
+						{"sub" in s && s.sub && <div className="text-[10px] text-(--app-text-dim) font-mono">{s.sub}</div>}
+					</div>
+				))}</div>
 			<table className="w-full text-sm border-collapse">
 				<thead>
 					<tr className="bg-(--app-surface) text-(--app-text-muted) text-xs">
@@ -112,9 +148,19 @@ export default function ConnectionsTable({
 													dA?.color ?? "#555",
 											}}
 										/>
-										<span className="text-(--app-text) font-medium truncate">
-											{dA?.name ?? "Unknown"}
-										</span>
+										<div className="min-w-0">
+											<span className="text-(--app-text) font-medium truncate block">
+												{dA?.name ?? "Unknown"}
+											</span>
+											<span className="text-[10px] text-(--app-text-dim)">
+												{dA ? (DEVICE_TYPE_LABELS[dA.deviceType as DeviceType] ?? dA.deviceType) : ""}
+											</span>
+											{(() => {
+												const pcA = getPortConfig(conn.deviceAId, conn.portA)
+												if (pcA?.ipAddress) return <span className="text-[10px] text-emerald-400 font-mono block">{pcA.ipAddress}</span>
+												return null
+											})()}
+										</div>
 									</div>
 								</td>
 								<td className="px-3 py-2 text-(--app-text) font-mono">
@@ -132,9 +178,19 @@ export default function ConnectionsTable({
 													dB?.color ?? "#555",
 											}}
 										/>
-										<span className="text-(--app-text) font-medium truncate">
-											{dB?.name ?? "Unknown"}
-										</span>
+										<div className="min-w-0">
+											<span className="text-(--app-text) font-medium truncate block">
+												{dB?.name ?? "Unknown"}
+											</span>
+											<span className="text-[10px] text-(--app-text-dim)">
+												{dB ? (DEVICE_TYPE_LABELS[dB.deviceType as DeviceType] ?? dB.deviceType) : ""}
+											</span>
+											{(() => {
+												const pcB = getPortConfig(conn.deviceBId, conn.portB)
+												if (pcB?.ipAddress) return <span className="text-[10px] text-emerald-400 font-mono block">{pcB.ipAddress}</span>
+												return null
+											})()}
+										</div>
 									</div>
 								</td>
 								<td className="px-3 py-2 text-(--app-text) font-mono">

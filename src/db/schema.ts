@@ -85,6 +85,20 @@ export const devices = pgTable("devices", {
 	positionX: integer("position_x").notNull().default(100),
 	positionY: integer("position_y").notNull().default(100),
 	maxSpeed: text("max_speed"),
+	/** Single management IP for L2 devices (switch, AP) */
+	managementIp: text("management_ip"),
+	/** NAT enabled — only for L3 devices (router, firewall) */
+	natEnabled: boolean("nat_enabled").default(false),
+	/** Default gateway — endpoint devices */
+	gateway: text("gateway"),
+	/** DHCP server mode — routers/servers */
+	dhcpEnabled: boolean("dhcp_enabled").default(false),
+	dhcpRangeStart: text("dhcp_range_start"),
+	dhcpRangeEnd: text("dhcp_range_end"),
+	/** WiFi SSID — routers / access-points */
+	ssid: text("ssid"),
+	/** WiFi password — routers / access-points */
+	wifiPassword: text("wifi_password"),
 	createdAt: timestamp("created_at").defaultNow(),
 })
 
@@ -102,6 +116,8 @@ export const connections = pgTable("connections", {
 		.references(() => devices.id, { onDelete: "cascade" }),
 	portB: integer("port_b").notNull(),
 	speed: text("speed"),
+	/** "wired" | "wifi" — determines visual representation */
+	connectionType: text("connection_type").default("wired"),
 	createdAt: timestamp("created_at").defaultNow(),
 })
 
@@ -118,6 +134,10 @@ export const portConfigs = pgTable("port_configs", {
 	vlan: integer("vlan"),
 	ipAddress: text("ip_address"),
 	macAddress: text("mac_address"),
+	/** Port mode: access | trunk | hybrid — only for L2 switch ports */
+	portMode: text("port_mode"),
+	/** Port role: uplink (WAN) | downlink (LAN) — determines traffic direction */
+	portRole: text("port_role"),
 })
 
 /**

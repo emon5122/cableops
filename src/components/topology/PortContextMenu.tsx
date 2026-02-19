@@ -1,11 +1,18 @@
 import {
-    SPEED_OPTIONS,
-    VLAN_PRESETS,
-    type ConnectionRow,
-    type DeviceRow,
-    type PortConfigRow,
+	DEVICE_CAPABILITIES,
+	PORT_MODES,
+	PORT_ROLES,
+	SPEED_OPTIONS,
+	VLAN_PRESETS,
+	validatePortIp,
+	type ConnectionRow,
+	type DeviceRow,
+	type DeviceType,
+	type PortConfigRow,
+	type PortMode,
+	type PortRole,
 } from "@/lib/topology-types"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 interface PortContextMenuProps {
 	x: number
@@ -15,6 +22,7 @@ interface PortContextMenuProps {
 	device: DeviceRow
 	connections: ConnectionRow[]
 	devices: DeviceRow[]
+	portConfigs: PortConfigRow[]
 	portConfig: PortConfigRow | null
 	onClose: () => void
 	onUpdatePortConfig: (config: {
@@ -27,9 +35,21 @@ interface PortContextMenuProps {
 		reservedLabel?: string | null
 		ipAddress?: string | null
 		macAddress?: string | null
+		portMode?: string | null
+		portRole?: string | null
 	}) => void
 	onDisconnect: (connectionId: string) => void
 }
+
+type PanelType =
+	| "main"
+	| "speed"
+	| "vlan"
+	| "alias"
+	| "ip"
+	| "mac"
+	| "portMode"
+	| "portRole"
 
 export default function PortContextMenu({
 	x,
@@ -39,21 +59,25 @@ export default function PortContextMenu({
 	device,
 	connections,
 	devices,
+	portConfigs,
 	portConfig,
 	onClose,
 	onUpdatePortConfig,
 	onDisconnect,
 }: PortContextMenuProps) {
 	const menuRef = useRef<HTMLDivElement>(null)
-	const [activePanel, setActivePanel] = useState<
-		"main" | "speed" | "vlan" | "alias" | "ip" | "mac"
-	>("main")
+	const [activePanel, setActivePanel] = useState<PanelType>("main")
 	const [aliasValue, setAliasValue] = useState(portConfig?.alias ?? "")
 	const [customVlan, setCustomVlan] = useState("")
 	const [ipValue, setIpValue] = useState(portConfig?.ipAddress ?? "")
 	const [macValue, setMacValue] = useState(portConfig?.macAddress ?? "")
 
-	// Find connection for this port
+	/* ── Device capabilities ── */
+	const caps =
+		DEVICE_CAPABILITIES[device.deviceType as DeviceType] ??
+		DEVICE_CAPABILITIES.pc
+
+	/* ── Connection info for this port ── */
 	const connection = connections.find(
 		(c) =>
 			(c.deviceAId === deviceId && c.portA === portNumber) ||
@@ -61,7 +85,6 @@ export default function PortContextMenu({
 	)
 	const isConnected = !!connection
 
-	// Find peer device
 	let peerInfo: { name: string; port: number; color: string } | null = null
 	if (connection) {
 		const isA =
@@ -71,22 +94,26 @@ export default function PortContextMenu({
 		const peerPort = isA ? connection.portB : connection.portA
 		const peerDev = devices.find((d) => d.id === peerId)
 		if (peerDev) {
-			peerInfo = { name: peerDev.name, port: peerPort, color: peerDev.color }
+			peerInfo = {
+				name: peerDev.name,
+				port: peerPort,
+				color: peerDev.color,
+			}
 		}
 	}
 
-	// Close on click outside
 	useEffect(() => {
 		const handler = (e: MouseEvent) => {
-			if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+			if (
+				menuRef.current &&
+				!menuRef.current.contains(e.target as Node)
+			)
 				onClose()
-			}
 		}
 		document.addEventListener("mousedown", handler)
 		return () => document.removeEventListener("mousedown", handler)
 	}, [onClose])
 
-	// Close on Escape
 	useEffect(() => {
 		const handler = (e: KeyboardEvent) => {
 			if (e.key === "Escape") onClose()
@@ -138,16 +165,41 @@ export default function PortContextMenu({
 		onClose()
 	}, [deviceId, portNumber, macValue, onUpdatePortConfig, onClose])
 
+	const setPortMode = useCallback(
+		(mode: PortMode | null) => {
+			onUpdatePortConfig({ deviceId, portNumber, portMode: mode })
+			onClose()
+		},
+		[deviceId, portNumber, onUpdatePortConfig, onClose],
+	)
+
+	const setPortRole = useCallback(
+		(role: PortRole | null) => {
+			onUpdatePortConfig({ deviceId, portNumber, portRole: role })
+			onClose()
+		},
+		[deviceId, portNumber, onUpdatePortConfig, onClose],
+	)
+
 	const generateRandomMac = useCallback(() => {
-		const hex = () => Math.floor(Math.random() * 256).toString(16).padStart(2, "0").toUpperCase()
-		// Set locally administered + unicast bits on first octet
+		const hex = () =>
+			Math.floor(Math.random() * 256)
+				.toString(16)
+				.padStart(2, "0")
+				.toUpperCase()
 		const first = (Math.floor(Math.random() * 256) | 0x02) & 0xfe
-		const mac = [first.toString(16).padStart(2, "0").toUpperCase(), hex(), hex(), hex(), hex(), hex()].join(":")
+		const mac = [
+			first.toString(16).padStart(2, "0").toUpperCase(),
+			hex(),
+			hex(),
+			hex(),
+			hex(),
+			hex(),
+		].join(":")
 		setMacValue(mac)
 	}, [])
 
 	const formatMacInput = useCallback((val: string) => {
-		// Strip non-hex characters, auto-insert colons
 		const clean = val.replace(/[^0-9a-fA-F]/g, "").slice(0, 12)
 		const parts = clean.match(/.{1,2}/g) ?? []
 		return parts.join(":")
@@ -163,7 +215,24 @@ export default function PortContextMenu({
 		onClose()
 	}, [deviceId, portNumber, portConfig, onUpdatePortConfig, onClose])
 
-	// Position adjustment to keep menu in viewport
+	/* ── Subnet validation for the current IP value ── */
+	const ipValidation = useMemo(() => {
+		if (!ipValue.trim() || caps.canBeGateway || caps.layer === "cloud") return null
+		return validatePortIp(ipValue.trim(), deviceId, portNumber, devices, connections, portConfigs)
+	}, [ipValue, caps, deviceId, portNumber, devices, connections, portConfigs])
+
+	/* ── Capability label for header ── */
+	const layerLabel =
+		caps.layer === 1
+			? "L1 Hub"
+			: caps.layer === 2
+				? "L2 Port"
+				: caps.layer === 3
+					? "L3 Interface"
+					: caps.layer === "cloud"
+						? "WAN"
+						: "NIC"
+
 	const menuStyle: React.CSSProperties = {
 		position: "fixed",
 		left: x,
@@ -184,6 +253,9 @@ export default function PortContextMenu({
 						<span className="text-(--app-text) font-semibold text-xs">
 							{device.name} — Port {portNumber}
 						</span>
+						<span className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-(--app-surface-alt) text-(--app-text-dim) font-mono">
+							{layerLabel}
+						</span>
 					</div>
 					{isConnected && peerInfo && (
 						<div className="mt-1 flex items-center gap-1.5 text-[10px] text-(--app-text-muted)">
@@ -202,14 +274,30 @@ export default function PortContextMenu({
 							Alias: {portConfig.alias}
 						</div>
 					)}
-					{portConfig?.ipAddress && (
+					{portConfig?.ipAddress && caps.perPortIp && (
 						<div className="mt-0.5 text-[10px] text-emerald-400 font-mono">
 							IP: {portConfig.ipAddress}
 						</div>
 					)}
-					{portConfig?.macAddress && (
+					{portConfig?.macAddress && caps.macPerPort && (
 						<div className="mt-0.5 text-[10px] text-violet-400 font-mono">
 							MAC: {portConfig.macAddress}
+						</div>
+					)}
+					{portConfig?.portMode && caps.portModeSupport && (
+						<div className="mt-0.5 text-[10px] text-amber-400">
+							Mode: {portConfig.portMode}
+						</div>
+					)}
+					{portConfig?.portRole && (
+						<div className={`mt-0.5 text-[10px] ${portConfig.portRole === "uplink" ? "text-amber-400" : "text-cyan-400"}`}>
+							Role: {portConfig.portRole === "uplink" ? "↑ Uplink (WAN)" : "↓ Downlink (LAN)"}
+						</div>
+					)}
+					{/* Show why IP is disabled for L2 */}
+					{!caps.perPortIp && caps.managementIp && (
+						<div className="mt-0.5 text-[10px] text-(--app-text-dim) italic">
+							L2 device — use Management IP on device settings
 						</div>
 					)}
 				</div>
@@ -217,7 +305,7 @@ export default function PortContextMenu({
 				{/* Main panel */}
 				{activePanel === "main" && (
 					<div className="py-1">
-						{/* Speed */}
+						{/* Speed — always available */}
 						<button
 							type="button"
 							className="w-full px-3 py-1.5 text-left text-(--app-text) hover:bg-(--app-surface-hover) flex items-center justify-between"
@@ -228,26 +316,68 @@ export default function PortContextMenu({
 								Link Speed
 							</span>
 							<span className="text-[10px] text-(--app-text-muted)">
-								{portConfig?.speed ?? connection?.speed ?? "Auto"}
+								{portConfig?.speed ??
+									connection?.speed ??
+									"Auto"}
 							</span>
 						</button>
 
-						{/* VLAN */}
-						<button
-							type="button"
-							className="w-full px-3 py-1.5 text-left text-(--app-text) hover:bg-(--app-surface-hover) flex items-center justify-between"
-							onClick={() => setActivePanel("vlan")}
-						>
-							<span className="flex items-center gap-2">
-								<VlanIcon />
-								VLAN
-							</span>
-							<span className="text-[10px] text-(--app-text-muted)">
-								{portConfig?.vlan ?? "None"}
-							</span>
-						</button>
+						{/* VLAN — only for L2 devices (switch, AP) */}
+						{caps.vlanSupport && (
+							<button
+								type="button"
+								className="w-full px-3 py-1.5 text-left text-(--app-text) hover:bg-(--app-surface-hover) flex items-center justify-between"
+								onClick={() => setActivePanel("vlan")}
+							>
+								<span className="flex items-center gap-2">
+									<VlanIcon />
+									VLAN
+								</span>
+								<span className="text-[10px] text-(--app-text-muted)">
+									{portConfig?.vlan ?? "None"}
+								</span>
+							</button>
+						)}
 
-						{/* Alias */}
+						{/* Port Mode — only for L2 devices */}
+						{caps.portModeSupport && (
+							<button
+								type="button"
+								className="w-full px-3 py-1.5 text-left text-(--app-text) hover:bg-(--app-surface-hover) flex items-center justify-between"
+								onClick={() => setActivePanel("portMode")}
+							>
+								<span className="flex items-center gap-2">
+									<PortModeIcon />
+									Port Mode
+								</span>
+								<span className="text-[10px] text-(--app-text-muted)">
+									{portConfig?.portMode ?? "access"}
+								</span>
+							</button>
+						)}
+
+						{/* Port Role — uplink (WAN) / downlink (LAN) — for L3, L2 with portModeSupport */}
+						{(caps.layer === 3 || caps.portModeSupport) && (
+							<button
+								type="button"
+								className="w-full px-3 py-1.5 text-left text-(--app-text) hover:bg-(--app-surface-hover) flex items-center justify-between"
+								onClick={() => setActivePanel("portRole")}
+							>
+								<span className="flex items-center gap-2">
+									<PortRoleIcon />
+									Port Role
+								</span>
+								<span className={`text-[10px] ${
+									portConfig?.portRole === "uplink" ? "text-amber-400" :
+									portConfig?.portRole === "downlink" ? "text-cyan-400" :
+									"text-(--app-text-muted)"
+								}`}>
+									{portConfig?.portRole ?? "auto"}
+								</span>
+							</button>
+						)}
+
+						{/* Alias — always available */}
 						<button
 							type="button"
 							className="w-full px-3 py-1.5 text-left text-(--app-text) hover:bg-(--app-surface-hover) flex items-center justify-between"
@@ -262,35 +392,53 @@ export default function PortContextMenu({
 							</span>
 						</button>
 
-						{/* IP Address */}
-						<button
-							type="button"
-							className="w-full px-3 py-1.5 text-left text-(--app-text) hover:bg-(--app-surface-hover) flex items-center justify-between"
-							onClick={() => setActivePanel("ip")}
-						>
-							<span className="flex items-center gap-2">
-								<IpIcon />
-								IP Address
-							</span>
-							<span className="text-[10px] text-(--app-text-muted) truncate max-w-24 font-mono">
-								{portConfig?.ipAddress ?? "—"}
-							</span>
-						</button>
+						{/* IP Address — only for devices with per-port IP */}
+						{caps.perPortIp && (
+							<button
+								type="button"
+								className="w-full px-3 py-1.5 text-left text-(--app-text) hover:bg-(--app-surface-hover) flex items-center justify-between"
+								onClick={() => setActivePanel("ip")}
+							>
+								<span className="flex items-center gap-2">
+									<IpIcon />
+									{caps.canBeGateway
+										? "Interface IP"
+										: "IP Address"}
+								</span>
+								<span className="text-[10px] text-(--app-text-muted) truncate max-w-24 font-mono">
+									{portConfig?.ipAddress ?? "—"}
+								</span>
+							</button>
+						)}
 
-						{/* MAC Address */}
-						<button
-							type="button"
-							className="w-full px-3 py-1.5 text-left text-(--app-text) hover:bg-(--app-surface-hover) flex items-center justify-between"
-							onClick={() => setActivePanel("mac")}
-						>
-							<span className="flex items-center gap-2">
-								<MacIcon />
-								MAC Address
-							</span>
-							<span className="text-[10px] text-(--app-text-muted) truncate max-w-24 font-mono">
-								{portConfig?.macAddress ?? "—"}
-							</span>
-						</button>
+						{/* MAC Address — only for devices that have per-port MAC */}
+						{caps.macPerPort && (
+							<button
+								type="button"
+								className="w-full px-3 py-1.5 text-left text-(--app-text) hover:bg-(--app-surface-hover) flex items-center justify-between"
+								onClick={() => setActivePanel("mac")}
+							>
+								<span className="flex items-center gap-2">
+									<MacIcon />
+									MAC Address
+								</span>
+								<span className="text-[10px] text-(--app-text-muted) truncate max-w-24 font-mono">
+									{portConfig?.macAddress ?? "—"}
+								</span>
+							</button>
+						)}
+
+						{/* Disabled IP notice for L2/L1 */}
+						{!caps.perPortIp && (
+							<div className="px-3 py-1.5 text-[10px] text-(--app-text-dim) italic flex items-center gap-2">
+								<IpIcon />
+								<span>
+									{caps.layer === 1
+										? "Hub ports have no IP"
+										: "Per-port IP not available (L2)"}
+								</span>
+							</div>
+						)}
 
 						{/* Reserve */}
 						<button
@@ -303,7 +451,9 @@ export default function PortContextMenu({
 								{portConfig?.reserved ? "Unreserve" : "Reserve"}
 							</span>
 							{portConfig?.reserved && (
-								<span className="text-[10px] text-amber-400">●</span>
+								<span className="text-[10px] text-amber-400">
+									●
+								</span>
 							)}
 						</button>
 
@@ -330,13 +480,7 @@ export default function PortContextMenu({
 				{/* Speed panel */}
 				{activePanel === "speed" && (
 					<div className="py-1">
-						<button
-							type="button"
-							className="w-full px-3 py-1 text-left text-(--app-text-muted) hover:bg-(--app-surface-hover) text-xs"
-							onClick={() => setActivePanel("main")}
-						>
-							← Back
-						</button>
+						<BackButton onClick={() => setActivePanel("main")} />
 						<div className="border-t border-(--app-border-light) my-1" />
 						<button
 							type="button"
@@ -357,7 +501,9 @@ export default function PortContextMenu({
 							>
 								{s}
 								{portConfig?.speed === s && (
-									<span className="text-cyan-400 text-xs">✓</span>
+									<span className="text-cyan-400 text-xs">
+										✓
+									</span>
 								)}
 							</button>
 						))}
@@ -367,13 +513,7 @@ export default function PortContextMenu({
 				{/* VLAN panel */}
 				{activePanel === "vlan" && (
 					<div className="py-1">
-						<button
-							type="button"
-							className="w-full px-3 py-1 text-left text-(--app-text-muted) hover:bg-(--app-surface-hover) text-xs"
-							onClick={() => setActivePanel("main")}
-						>
-							← Back
-						</button>
+						<BackButton onClick={() => setActivePanel("main")} />
 						<div className="border-t border-(--app-border-light) my-1" />
 						<button
 							type="button"
@@ -394,7 +534,9 @@ export default function PortContextMenu({
 							>
 								VLAN {v}
 								{portConfig?.vlan === v && (
-									<span className="text-cyan-400 text-xs">✓</span>
+									<span className="text-cyan-400 text-xs">
+										✓
+									</span>
 								)}
 							</button>
 						))}
@@ -411,7 +553,8 @@ export default function PortContextMenu({
 								onKeyDown={(e) => {
 									if (e.key === "Enter") {
 										const num = Number(customVlan)
-										if (num >= 1 && num <= 4094) setVlan(num)
+										if (num >= 1 && num <= 4094)
+											setVlan(num)
 									}
 								}}
 							/>
@@ -429,16 +572,76 @@ export default function PortContextMenu({
 					</div>
 				)}
 
+				{/* Port Mode panel — access / trunk / hybrid */}
+				{activePanel === "portMode" && (
+					<div className="py-1">
+						<BackButton onClick={() => setActivePanel("main")} />
+						<div className="border-t border-(--app-border-light) my-1" />
+						<div className="px-3 py-1 text-[10px] text-(--app-text-dim)">
+							Access: single VLAN untagged. Trunk: multiple
+							VLANs tagged (802.1Q)
+						</div>
+						<div className="border-t border-(--app-border-light) my-1" />
+						{PORT_MODES.map((m) => (
+							<button
+								key={m}
+								type="button"
+								className="w-full px-3 py-1.5 text-left text-(--app-text) hover:bg-(--app-surface-hover) flex items-center justify-between capitalize"
+								onClick={() => setPortMode(m)}
+							>
+								{m}
+								{(portConfig?.portMode ?? "access") === m && (
+									<span className="text-cyan-400 text-xs">
+										✓
+									</span>
+								)}
+							</button>
+						))}
+					</div>
+				)}
+
+				{/* Port Role panel — uplink / downlink */}
+				{activePanel === "portRole" && (
+					<div className="py-1">
+						<BackButton onClick={() => setActivePanel("main")} />
+						<div className="border-t border-(--app-border-light) my-1" />
+						<div className="px-3 py-1 text-[10px] text-(--app-text-dim)">
+							<span className="text-amber-400">Uplink</span>: WAN-facing port (connects to ISP / upstream router).{" "}
+							<span className="text-cyan-400">Downlink</span>: LAN-facing port (serves local devices, DHCP, VLAN).
+						</div>
+						<div className="border-t border-(--app-border-light) my-1" />
+						<button
+							type="button"
+							className="w-full px-3 py-1.5 text-left text-(--app-text) hover:bg-(--app-surface-hover) flex items-center justify-between"
+							onClick={() => setPortRole(null)}
+						>
+							Auto
+							{!portConfig?.portRole && (
+								<span className="text-cyan-400 text-xs">✓</span>
+							)}
+						</button>
+						{PORT_ROLES.map((r) => (
+							<button
+								key={r}
+								type="button"
+								className="w-full px-3 py-1.5 text-left text-(--app-text) hover:bg-(--app-surface-hover) flex items-center justify-between capitalize"
+								onClick={() => setPortRole(r)}
+							>
+								<span className="flex items-center gap-2">
+									{r === "uplink" ? "↑ Uplink (WAN)" : "↓ Downlink (LAN)"}
+								</span>
+								{portConfig?.portRole === r && (
+									<span className="text-cyan-400 text-xs">✓</span>
+								)}
+							</button>
+						))}
+					</div>
+				)}
+
 				{/* Alias panel */}
 				{activePanel === "alias" && (
 					<div className="py-1">
-						<button
-							type="button"
-							className="w-full px-3 py-1 text-left text-(--app-text-muted) hover:bg-(--app-surface-hover) text-xs"
-							onClick={() => setActivePanel("main")}
-						>
-							← Back
-						</button>
+						<BackButton onClick={() => setActivePanel("main")} />
 						<div className="border-t border-(--app-border-light) my-1" />
 						<div className="px-3 py-2 space-y-2">
 							<input
@@ -480,24 +683,36 @@ export default function PortContextMenu({
 					</div>
 				)}
 
-				{/* IP Address panel */}
+				{/* IP Address panel — contextual */}
 				{activePanel === "ip" && (
 					<div className="py-1">
-						<button
-							type="button"
-							className="w-full px-3 py-1 text-left text-(--app-text-muted) hover:bg-(--app-surface-hover) text-xs"
-							onClick={() => setActivePanel("main")}
-						>
-							← Back
-						</button>
+						<BackButton onClick={() => setActivePanel("main")} />
 						<div className="border-t border-(--app-border-light) my-1" />
 						<div className="px-3 py-2 space-y-2">
+							{caps.canBeGateway && (
+								<div className="text-[10px] text-amber-400 bg-amber-400/10 rounded px-2 py-1">
+									This interface defines a subnet. Connected
+									devices should use IPs within this range.
+								</div>
+							)}
+							{caps.layer === "endpoint" && (
+								<div className="text-[10px] text-cyan-400 bg-cyan-400/10 rounded px-2 py-1">
+									Assign an IP from the connected router's
+									subnet.
+								</div>
+							)}
 							<label className="text-[10px] text-(--app-text-dim) uppercase tracking-wider block">
-								IP Address (CIDR notation)
+								{caps.canBeGateway
+									? "Interface IP (CIDR)"
+									: "IP Address (CIDR notation)"}
 							</label>
 							<input
 								type="text"
-								placeholder="192.168.1.1/24"
+								placeholder={
+									caps.canBeGateway
+										? "e.g. 192.168.1.1/24"
+										: "e.g. 192.168.1.100/24"
+								}
 								value={ipValue}
 								onChange={(e) => setIpValue(e.target.value)}
 								className="w-full bg-(--app-input-bg) border border-(--app-border-light) rounded px-2 py-1.5 text-xs text-(--app-text) font-mono outline-none"
@@ -506,25 +721,88 @@ export default function PortContextMenu({
 								}}
 								autoFocus
 							/>
-							{ipValue && /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/.test(ipValue.trim()) && (() => {
-								const [ip, cidrStr] = ipValue.trim().split("/")
-								const cidr = Number(cidrStr)
-								const mask = cidr > 0 ? (~0 << (32 - cidr)) >>> 0 : 0
-								const parts = ip.split(".").map(Number)
-								const ipNum = ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0
-								const network = (ipNum & mask) >>> 0
-								const broadcast = (network | ~mask) >>> 0
-								const hosts = cidr <= 30 ? Math.pow(2, 32 - cidr) - 2 : cidr === 31 ? 2 : 1
-								const toIp = (n: number) => `${(n >>> 24) & 255}.${(n >>> 16) & 255}.${(n >>> 8) & 255}.${n & 255}`
-								return (
-									<div className="text-[10px] text-(--app-text-dim) space-y-0.5 bg-(--app-surface-alt) rounded p-2">
-										<div>Network: <span className="font-mono text-emerald-400">{toIp(network)}/{cidr}</span></div>
-										<div>Mask: <span className="font-mono">{toIp(mask)}</span></div>
-										<div>Broadcast: <span className="font-mono">{toIp(broadcast)}</span></div>
-										<div>Usable hosts: <span className="font-mono text-cyan-400">{hosts}</span></div>
-									</div>
-								)
-							})()}
+							{ipValue &&
+								/^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/.test(
+									ipValue.trim(),
+								) &&
+								(() => {
+									const parts = ipValue.trim().split("/")
+									const ip = parts[0] ?? ""
+									const cidrStr = parts[1] ?? "0"
+									const cidr = Number(cidrStr)
+									const mask =
+										cidr > 0
+											? (~0 << (32 - cidr)) >>> 0
+											: 0
+									const octets = ip
+										.split(".")
+										.map(Number)
+									const ipNum =
+										(((octets[0] ?? 0) << 24) |
+											((octets[1] ?? 0) << 16) |
+											((octets[2] ?? 0) << 8) |
+											(octets[3] ?? 0)) >>>
+										0
+									const network = (ipNum & mask) >>> 0
+									const broadcast =
+										(network | ~mask) >>> 0
+									const hosts =
+										cidr <= 30
+											? 2 ** (32 - cidr) - 2
+											: cidr === 31
+												? 2
+												: 1
+									const toIp = (n: number) =>
+										`${(n >>> 24) & 255}.${(n >>> 16) & 255}.${(n >>> 8) & 255}.${n & 255}`
+									return (
+										<div className="text-[10px] text-(--app-text-dim) space-y-0.5 bg-(--app-surface-alt) rounded p-2">
+											<div>
+												Network:{" "}
+												<span className="font-mono text-emerald-400">
+													{toIp(network)}/{cidr}
+												</span>
+											</div>
+											<div>
+												Mask:{" "}
+												<span className="font-mono">
+													{toIp(mask)}
+												</span>
+											</div>
+											<div>
+												Broadcast:{" "}
+												<span className="font-mono">
+													{toIp(broadcast)}
+												</span>
+											</div>
+											<div>
+												Usable hosts:{" "}
+												<span className="font-mono text-cyan-400">
+													{hosts}
+												</span>
+											</div>
+											{caps.canBeGateway && (
+												<div className="text-amber-400">
+													Gateway:{" "}
+													<span className="font-mono">
+														{toIp(ipNum)}
+													</span>
+												</div>
+											)}
+										</div>
+									)
+								})()}
+							{/* Subnet validation warning */}
+							{ipValidation && ipValidation.warning && (
+								<div className="text-[10px] bg-red-500/10 border border-red-500/30 text-red-400 rounded px-2 py-1.5">
+									<div className="font-semibold">⚠ Subnet Mismatch</div>
+									<div className="mt-0.5">{ipValidation.warning}</div>
+								</div>
+							)}
+							{ipValidation && !ipValidation.warning && ipValidation.gatewaySubnet && (
+								<div className="text-[10px] bg-emerald-500/10 text-emerald-400 rounded px-2 py-1">
+									✓ Matches gateway subnet {ipValidation.gatewaySubnet}
+								</div>
+							)}
 							<div className="flex gap-1">
 								<button
 									type="button"
@@ -538,7 +816,11 @@ export default function PortContextMenu({
 									className="px-2 py-1 bg-(--app-surface-hover) hover:bg-(--app-border-light) text-(--app-text-muted) text-xs rounded"
 									onClick={() => {
 										setIpValue("")
-										onUpdatePortConfig({ deviceId, portNumber, ipAddress: null })
+										onUpdatePortConfig({
+											deviceId,
+											portNumber,
+											ipAddress: null,
+										})
 										onClose()
 									}}
 								>
@@ -552,13 +834,7 @@ export default function PortContextMenu({
 				{/* MAC Address panel */}
 				{activePanel === "mac" && (
 					<div className="py-1">
-						<button
-							type="button"
-							className="w-full px-3 py-1 text-left text-(--app-text-muted) hover:bg-(--app-surface-hover) text-xs"
-							onClick={() => setActivePanel("main")}
-						>
-							← Back
-						</button>
+						<BackButton onClick={() => setActivePanel("main")} />
 						<div className="border-t border-(--app-border-light) my-1" />
 						<div className="px-3 py-2 space-y-2">
 							<label className="text-[10px] text-(--app-text-dim) uppercase tracking-wider block">
@@ -568,7 +844,11 @@ export default function PortContextMenu({
 								type="text"
 								placeholder="AA:BB:CC:DD:EE:FF"
 								value={macValue}
-								onChange={(e) => setMacValue(formatMacInput(e.target.value))}
+								onChange={(e) =>
+									setMacValue(
+										formatMacInput(e.target.value),
+									)
+								}
 								className="w-full bg-(--app-input-bg) border border-(--app-border-light) rounded px-2 py-1.5 text-xs text-(--app-text) font-mono outline-none"
 								onKeyDown={(e) => {
 									if (e.key === "Enter") saveMac()
@@ -595,7 +875,11 @@ export default function PortContextMenu({
 									className="px-2 py-1 bg-(--app-surface-hover) hover:bg-(--app-border-light) text-(--app-text-muted) text-xs rounded"
 									onClick={() => {
 										setMacValue("")
-										onUpdatePortConfig({ deviceId, portNumber, macAddress: null })
+										onUpdatePortConfig({
+											deviceId,
+											portNumber,
+											macAddress: null,
+										})
 										onClose()
 									}}
 								>
@@ -610,7 +894,21 @@ export default function PortContextMenu({
 	)
 }
 
-/* ── Tiny inline SVG icons for context menu ── */
+/* ── Shared sub-components ── */
+
+function BackButton({ onClick }: { onClick: () => void }) {
+	return (
+		<button
+			type="button"
+			className="w-full px-3 py-1 text-left text-(--app-text-muted) hover:bg-(--app-surface-hover) text-xs"
+			onClick={onClick}
+		>
+			← Back
+		</button>
+	)
+}
+
+/* ── Tiny inline SVG icons ── */
 
 function SpeedIcon() {
 	return (
@@ -627,6 +925,17 @@ function VlanIcon() {
 			<rect x="14" y="3" width="7" height="7" rx="1" />
 			<rect x="3" y="14" width="7" height="7" rx="1" />
 			<rect x="14" y="14" width="7" height="7" rx="1" />
+		</svg>
+	)
+}
+
+function PortModeIcon() {
+	return (
+		<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+			<path d="M4 6h16M4 12h16M4 18h16" />
+			<circle cx="8" cy="6" r="2" fill="currentColor" />
+			<circle cx="16" cy="12" r="2" fill="currentColor" />
+			<circle cx="8" cy="18" r="2" fill="currentColor" />
 		</svg>
 	)
 }
@@ -678,6 +987,15 @@ function MacIcon() {
 			<path d="M14 10h.01" />
 			<path d="M18 10h.01" />
 			<path d="M8 14h8" />
+		</svg>
+	)
+}
+
+function PortRoleIcon() {
+	return (
+		<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+			<path d="M12 5v14" />
+			<path d="M19 12l-7-7-7 7" />
 		</svg>
 	)
 }
