@@ -55,18 +55,18 @@ function Dashboard() {
 	/* ── Not signed in ── */
 	if (!authLoading && !session?.user) {
 		return (
-			<div className="min-h-full flex items-center justify-center bg-[var(--app-bg)] p-6">
+			<div className="min-h-full flex items-center justify-center bg-(--app-bg) p-6">
 				<div className="max-w-lg text-center">
 					<div className="flex items-center justify-center gap-3 mb-6">
 						<Cable className="text-cyan-400" size={48} />
-						<h1 className="text-4xl font-black text-[var(--app-text)]">
+						<h1 className="text-4xl font-black text-(--app-text)">
 							CableOps
 						</h1>
 					</div>
-					<p className="text-[var(--app-text-muted)] text-lg mb-2">
+					<p className="text-(--app-text-muted) text-lg mb-2">
 						Ethernet Cable Connection Manager
 					</p>
-					<p className="text-[var(--app-text-muted)] text-sm mb-8 max-w-md mx-auto">
+					<p className="text-(--app-text-muted) text-sm mb-8 max-w-md mx-auto">
 						Visualize, plan, and document your network cable
 						topology. Drag-and-drop devices, connect ports, and keep
 						track of every connection.
@@ -80,7 +80,7 @@ function Dashboard() {
 						<Link to="/auth/sign-up">
 							<Button
 								variant="outline"
-								className="border-(--app-border) text-[var(--app-text)] hover:bg-[var(--app-surface-hover)] px-6"
+								className="border-(--app-border) text-(--app-text) hover:bg-(--app-surface-hover) px-6"
 							>
 								Create Account
 							</Button>
@@ -113,8 +113,8 @@ function Dashboard() {
 	/* ── Loading ── */
 	if (authLoading) {
 		return (
-			<div className="min-h-full flex items-center justify-center bg-[var(--app-bg)]">
-				<div className="animate-pulse text-[var(--app-text-muted)]">Loading…</div>
+			<div className="min-h-full flex items-center justify-center bg-(--app-bg)">
+				<div className="animate-pulse text-(--app-text-muted)">Loading…</div>
 			</div>
 		)
 	}
@@ -123,14 +123,14 @@ function Dashboard() {
 	const workspaces = workspacesQuery.data ?? []
 
 	return (
-		<div className="min-h-full bg-[var(--app-bg)] p-6">
+		<div className="min-h-full bg-(--app-bg) p-6">
 			<div className="max-w-4xl mx-auto">
 				<div className="flex items-center justify-between mb-8">
 					<div>
-						<h2 className="text-2xl font-bold text-[var(--app-text)]">
+						<h2 className="text-2xl font-bold text-(--app-text)">
 							Workspaces
 						</h2>
-						<p className="text-sm text-[var(--app-text-muted)] mt-1">
+						<p className="text-sm text-(--app-text-muted) mt-1">
 							Each workspace contains its own device topology
 						</p>
 					</div>
@@ -152,7 +152,7 @@ function Dashboard() {
 						value={newName}
 						onChange={(e) => setNewName(e.target.value)}
 						placeholder="New workspace name…"
-						className="bg-[var(--app-surface)] border-(--app-border) text-[var(--app-text)] flex-1"
+						className="bg-(--app-surface) border-(--app-border) text-(--app-text) flex-1"
 					/>
 					<Button
 						type="submit"
@@ -166,7 +166,7 @@ function Dashboard() {
 
 				{/* Workspace cards */}
 				{workspacesQuery.isLoading && (
-					<div className="text-[var(--app-text-muted)] text-sm animate-pulse">
+					<div className="text-(--app-text-muted) text-sm animate-pulse">
 						Loading workspaces…
 					</div>
 				)}
@@ -175,9 +175,9 @@ function Dashboard() {
 					<div className="text-center py-16">
 						<Network
 							size={48}
-							className="mx-auto text-[var(--app-text-muted)] opacity-30 mb-4"
+							className="mx-auto text-(--app-text-muted) opacity-30 mb-4"
 						/>
-						<p className="text-[var(--app-text-muted)]">
+						<p className="text-(--app-text-muted)">
 							No workspaces yet. Create one to get started!
 						</p>
 					</div>
@@ -187,7 +187,7 @@ function Dashboard() {
 					{workspaces.map((ws) => (
 						<div
 							key={ws.id}
-							className="bg-[var(--app-surface)] border border-(--app-border) rounded-xl p-4 hover:border-cyan-500/30 transition-all group"
+							className="bg-(--app-surface) border border-(--app-border) rounded-xl p-4 hover:border-cyan-500/30 transition-all group"
 						>
 							<div className="flex items-start justify-between mb-3">
 								<div className="flex items-center gap-2">
@@ -195,13 +195,13 @@ function Dashboard() {
 										size={18}
 										className="text-cyan-400"
 									/>
-									<h3 className="text-sm font-bold text-[var(--app-text)]">
+									<h3 className="text-sm font-bold text-(--app-text)">
 										{ws.name}
 									</h3>
 								</div>
 								<button
 									type="button"
-									className="text-[var(--app-text-muted)] hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+									className="text-(--app-text-muted) hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
 									onClick={() =>
 										deleteWorkspace.mutate({ id: ws.id })
 									}
@@ -210,7 +210,7 @@ function Dashboard() {
 									<Trash2 size={14} />
 								</button>
 							</div>
-							<p className="text-xs text-[var(--app-text-muted)] mb-3">
+							<p className="text-xs text-(--app-text-muted) mb-3">
 								Created{" "}
 								{ws.createdAt
 									? new Date(
@@ -243,10 +243,10 @@ function FeatureCard({
 	desc: string
 }) {
 	return (
-		<div className="bg-[var(--app-surface)] border border-(--app-border) rounded-xl p-5 text-left">
+		<div className="bg-(--app-surface) border border-(--app-border) rounded-xl p-5 text-left">
 			<div className="text-cyan-400 mb-3">{icon}</div>
-			<h3 className="text-sm font-bold text-[var(--app-text)] mb-1">{title}</h3>
-			<p className="text-xs text-[var(--app-text-muted)] leading-relaxed">{desc}</p>
+			<h3 className="text-sm font-bold text-(--app-text) mb-1">{title}</h3>
+			<p className="text-xs text-(--app-text-muted) leading-relaxed">{desc}</p>
 		</div>
 	)
 }

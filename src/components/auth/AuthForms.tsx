@@ -35,23 +35,23 @@ export function SignInForm() {
 	}
 
 	return (
-		<div className="min-h-screen flex items-center justify-center bg-[var(--app-bg)] p-4">
+		<div className="min-h-screen flex items-center justify-center bg-(--app-bg) p-4">
 			<div className="w-full max-w-sm">
 				<div className="text-center mb-8">
 					<div className="flex items-center justify-center gap-3 mb-3">
 						<Cable className="text-cyan-400" size={32} />
-						<h1 className="text-2xl font-bold text-[var(--app-text)]">
+						<h1 className="text-2xl font-bold text-(--app-text)">
 							CableOps
 						</h1>
 					</div>
-					<p className="text-[var(--app-text-muted)] text-sm">
+					<p className="text-(--app-text-muted) text-sm">
 						Sign in to manage your cable topologies
 					</p>
 				</div>
 
 				<form
 					onSubmit={handleSubmit}
-					className="bg-[var(--app-surface)] border border-(--app-border) rounded-xl p-6 space-y-4"
+					className="bg-(--app-surface) border border-(--app-border) rounded-xl p-6 space-y-4"
 				>
 					{error && (
 						<div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-sm text-red-400">
@@ -60,19 +60,19 @@ export function SignInForm() {
 					)}
 
 					<div>
-						<Label className="text-xs text-[var(--app-text-muted)]">Email</Label>
+						<Label className="text-xs text-(--app-text-muted)">Email</Label>
 						<Input
 							type="email"
 							value={email}
 							onChange={(e) => setEmail(e.target.value)}
 							placeholder="you@example.com"
 							required
-							className="mt-1 bg-[var(--app-input-bg)] border-(--app-border) text-[var(--app-text)]"
+							className="mt-1 bg-(--app-input-bg) border-(--app-border) text-(--app-text)"
 						/>
 					</div>
 
 					<div>
-						<Label className="text-xs text-[var(--app-text-muted)]">
+						<Label className="text-xs text-(--app-text-muted)">
 							Password
 						</Label>
 						<Input
@@ -81,7 +81,7 @@ export function SignInForm() {
 							onChange={(e) => setPassword(e.target.value)}
 							placeholder="••••••••"
 							required
-							className="mt-1 bg-[var(--app-input-bg)] border-(--app-border) text-[var(--app-text)]"
+							className="mt-1 bg-(--app-input-bg) border-(--app-border) text-(--app-text)"
 						/>
 					</div>
 
@@ -94,7 +94,7 @@ export function SignInForm() {
 						{loading ? "Signing in…" : "Sign In"}
 					</Button>
 
-					<p className="text-center text-xs text-[var(--app-text-muted)]">
+					<p className="text-center text-xs text-(--app-text-muted)">
 						Don't have an account?{" "}
 						<a
 							href="/auth/sign-up"
@@ -140,23 +140,23 @@ export function SignUpForm() {
 	}
 
 	return (
-		<div className="min-h-screen flex items-center justify-center bg-[var(--app-bg)] p-4">
+		<div className="min-h-screen flex items-center justify-center bg-(--app-bg) p-4">
 			<div className="w-full max-w-sm">
 				<div className="text-center mb-8">
 					<div className="flex items-center justify-center gap-3 mb-3">
 						<Cable className="text-cyan-400" size={32} />
-						<h1 className="text-2xl font-bold text-[var(--app-text)]">
+						<h1 className="text-2xl font-bold text-(--app-text)">
 							CableOps
 						</h1>
 					</div>
-					<p className="text-[var(--app-text-muted)] text-sm">
+					<p className="text-(--app-text-muted) text-sm">
 						Create your account to get started
 					</p>
 				</div>
 
 				<form
 					onSubmit={handleSubmit}
-					className="bg-[var(--app-surface)] border border-(--app-border) rounded-xl p-6 space-y-4"
+					className="bg-(--app-surface) border border-(--app-border) rounded-xl p-6 space-y-4"
 				>
 					{error && (
 						<div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-sm text-red-400">
@@ -165,31 +165,31 @@ export function SignUpForm() {
 					)}
 
 					<div>
-						<Label className="text-xs text-[var(--app-text-muted)]">Name</Label>
+						<Label className="text-xs text-(--app-text-muted)">Name</Label>
 						<Input
 							type="text"
 							value={name}
 							onChange={(e) => setName(e.target.value)}
 							placeholder="Your name"
 							required
-							className="mt-1 bg-[var(--app-input-bg)] border-(--app-border) text-[var(--app-text)]"
+							className="mt-1 bg-(--app-input-bg) border-(--app-border) text-(--app-text)"
 						/>
 					</div>
 
 					<div>
-						<Label className="text-xs text-[var(--app-text-muted)]">Email</Label>
+						<Label className="text-xs text-(--app-text-muted)">Email</Label>
 						<Input
 							type="email"
 							value={email}
 							onChange={(e) => setEmail(e.target.value)}
 							placeholder="you@example.com"
 							required
-							className="mt-1 bg-[var(--app-input-bg)] border-(--app-border) text-[var(--app-text)]"
+							className="mt-1 bg-(--app-input-bg) border-(--app-border) text-(--app-text)"
 						/>
 					</div>
 
 					<div>
-						<Label className="text-xs text-[var(--app-text-muted)]">
+						<Label className="text-xs text-(--app-text-muted)">
 							Password
 						</Label>
 						<Input
@@ -199,7 +199,7 @@ export function SignUpForm() {
 							placeholder="••••••••"
 							required
 							minLength={8}
-							className="mt-1 bg-[var(--app-input-bg)] border-(--app-border) text-[var(--app-text)]"
+							className="mt-1 bg-(--app-input-bg) border-(--app-border) text-(--app-text)"
 						/>
 					</div>
 
@@ -212,7 +212,7 @@ export function SignUpForm() {
 						{loading ? "Creating account…" : "Sign Up"}
 					</Button>
 
-					<p className="text-center text-xs text-[var(--app-text-muted)]">
+					<p className="text-center text-xs text-(--app-text-muted)">
 						Already have an account?{" "}
 						<a
 							href="/auth/sign-in"

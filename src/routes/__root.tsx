@@ -44,7 +44,7 @@ function RootDocument({ children }: { children: ReactNode }) {
 					}}
 				/>
 			</head>
-			<body className="bg-[var(--app-bg)] text-[var(--app-text)] min-h-screen dark:bg-[var(--app-bg)] dark:text-[var(--app-text)]">
+			<body className="bg-(--app-bg) text-(--app-text) min-h-screen dark:bg-(--app-bg) dark:text-(--app-text)">
 				<TanStackQueryProvider>
 					<div className="flex flex-col h-screen">
 						<Header />

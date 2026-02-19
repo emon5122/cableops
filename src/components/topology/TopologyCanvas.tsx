@@ -565,7 +565,7 @@ export default function TopologyCanvas({
 											key={pNum}
 											type="button"
 											className={`flex items-center justify-center rounded-md text-[10px] font-bold transition-all relative ${
-												isSel ? "ring-2 ring-white ring-offset-1 ring-offset-[var(--app-surface)]" : ""
+												isSel ? "ring-2 ring-white ring-offset-1 ring-offset-(--app-surface)" : ""
 											} ${pc?.reserved ? "opacity-50" : ""}`}
 											style={{
 												width: PORT_SIZE,
@@ -765,12 +765,12 @@ export default function TopologyCanvas({
 			{/* Canvas context menu (add annotation) — z-index 100 */}
 			{canvasMenu && (
 				<div
-					className="fixed bg-[var(--app-menu-bg)] border border-[var(--app-border-light)] rounded-lg shadow-xl py-1 text-sm"
+					className="fixed bg-(--app-menu-bg) border border-(--app-border-light) rounded-lg shadow-xl py-1 text-sm"
 					style={{ left: canvasMenu.x, top: canvasMenu.y, zIndex: 100, minWidth: 160 }}
 				>
 					<button
 						type="button"
-						className="w-full text-left px-3 py-1.5 text-[var(--app-text-muted)] hover:bg-[var(--app-border)] hover:text-white flex items-center gap-2"
+						className="w-full text-left px-3 py-1.5 text-(--app-text-muted) hover:bg-(--app-border) hover:text-white flex items-center gap-2"
 						onClick={() => {
 							onAddAnnotation({ x: canvasMenu.canvasX, y: canvasMenu.canvasY, kind: "rect", label: "Room" })
 							setCanvasMenu(null)
@@ -783,7 +783,7 @@ export default function TopologyCanvas({
 					</button>
 					<button
 						type="button"
-						className="w-full text-left px-3 py-1.5 text-[var(--app-text-muted)] hover:bg-[var(--app-border)] hover:text-white flex items-center gap-2"
+						className="w-full text-left px-3 py-1.5 text-(--app-text-muted) hover:bg-(--app-border) hover:text-white flex items-center gap-2"
 						onClick={() => {
 							onAddAnnotation({ x: canvasMenu.canvasX, y: canvasMenu.canvasY, kind: "rect", label: "Wall" })
 							setCanvasMenu(null)
@@ -797,7 +797,7 @@ export default function TopologyCanvas({
 					</button>
 					<button
 						type="button"
-						className="w-full text-left px-3 py-1.5 text-[var(--app-text-muted)] hover:bg-[var(--app-border)] hover:text-white flex items-center gap-2"
+						className="w-full text-left px-3 py-1.5 text-(--app-text-muted) hover:bg-(--app-border) hover:text-white flex items-center gap-2"
 						onClick={() => {
 							onAddAnnotation({ x: canvasMenu.canvasX, y: canvasMenu.canvasY, kind: "rect" })
 							setCanvasMenu(null)
@@ -808,10 +808,10 @@ export default function TopologyCanvas({
 						</svg>
 						Add Label
 					</button>
-					<div className="border-t border-[var(--app-border-light)] my-1" />
+					<div className="border-t border-(--app-border-light) my-1" />
 					<button
 						type="button"
-						className="w-full text-left px-3 py-1.5 text-[var(--app-text-dim)] hover:text-[var(--app-text-muted)]"
+						className="w-full text-left px-3 py-1.5 text-(--app-text-dim) hover:text-(--app-text-muted)"
 						onClick={() => setCanvasMenu(null)}
 					>
 						Cancel
@@ -822,7 +822,7 @@ export default function TopologyCanvas({
 			{/* Empty state */}
 			{devices.length === 0 && (
 				<div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: 5 }}>
-					<div className="text-center text-[var(--app-text-muted)]">
+					<div className="text-center text-(--app-text-muted)">
 						<svg className="mx-auto mb-4 opacity-30" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
 							<rect x="2" y="6" width="20" height="12" rx="2" />
 							<path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01" />

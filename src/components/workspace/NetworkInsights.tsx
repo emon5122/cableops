@@ -379,7 +379,7 @@ export default function NetworkInsights({
 	]
 
 	return (
-		<div className="flex-1 overflow-auto bg-[var(--app-bg)] p-4">
+		<div className="flex-1 overflow-auto bg-(--app-bg) p-4">
 			{/* Tab switcher */}
 			<div className="flex items-center gap-2 mb-4">
 				{tabs.map((t) => (
@@ -388,8 +388,8 @@ export default function NetworkInsights({
 						type="button"
 						className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 ${
 							tab === t.key
-								? "bg-[var(--app-surface-hover)] text-white"
-								: "text-[var(--app-text-muted)] hover:text-white hover:bg-[var(--app-surface)]"
+								? "bg-(--app-surface-hover) text-white"
+								: "text-(--app-text-muted) hover:text-white hover:bg-(--app-surface)"
 						}`}
 						onClick={() => setTab(t.key)}
 					>
@@ -421,12 +421,12 @@ export default function NetworkInsights({
 											className={`px-3 py-2 rounded-lg border text-sm font-mono transition-all ${
 												selectedVlan === vlan
 													? "bg-cyan-500/20 border-cyan-500 text-cyan-300"
-													: "bg-[var(--app-surface)] border-[var(--app-border)] text-[var(--app-text)] hover:border-[var(--app-border-light)]"
+													: "bg-(--app-surface) border-(--app-border) text-(--app-text) hover:border-(--app-border-light)"
 											}`}
 											onClick={() => setSelectedVlan(selectedVlan === vlan ? null : vlan)}
 										>
 											<div className="font-bold">VLAN {vlan}</div>
-											<div className="text-[10px] text-[var(--app-text-muted)]">
+											<div className="text-[10px] text-(--app-text-muted)">
 												{ports.length} port{ports.length !== 1 ? "s" : ""} · {devCount} device{devCount !== 1 ? "s" : ""}
 											</div>
 										</button>
@@ -435,14 +435,14 @@ export default function NetworkInsights({
 							</div>
 
 							{selectedVlan != null && (
-								<div className="bg-[var(--app-surface)] rounded-lg border border-[var(--app-border)] overflow-hidden">
-									<div className="px-4 py-2.5 border-b border-[var(--app-border)] flex items-center gap-2">
+								<div className="bg-(--app-surface) rounded-lg border border-(--app-border) overflow-hidden">
+									<div className="px-4 py-2.5 border-b border-(--app-border) flex items-center gap-2">
 										<Layers size={14} className="text-cyan-400" />
-										<span className="text-sm font-bold text-[var(--app-text)]">
+										<span className="text-sm font-bold text-(--app-text)">
 											VLAN {selectedVlan} — {selectedVlanPorts.length} port{selectedVlanPorts.length !== 1 ? "s" : ""} across {vlanDeviceIds.length} device{vlanDeviceIds.length !== 1 ? "s" : ""}
 										</span>
 									</div>
-									<div className="divide-y divide-[var(--app-border)]">
+									<div className="divide-y divide-(--app-border)">
 										{vlanDeviceIds.map((devId) => {
 											const dev = getDevice(devId)
 											if (!dev) return null
@@ -454,9 +454,9 @@ export default function NetworkInsights({
 														style={{ backgroundColor: dev.color }}
 													/>
 													<div className="flex-1 min-w-0">
-														<div className="text-sm font-medium text-[var(--app-text)] truncate">
+														<div className="text-sm font-medium text-(--app-text) truncate">
 															{dev.name}
-															<span className="text-[var(--app-text-dim)] text-xs ml-1.5">
+															<span className="text-(--app-text-dim) text-xs ml-1.5">
 																{DEVICE_TYPE_LABELS[dev.deviceType as keyof typeof DEVICE_TYPE_LABELS] ?? dev.deviceType}
 															</span>
 														</div>
@@ -485,10 +485,10 @@ export default function NetworkInsights({
 			{/* ── Connection Tracer ── */}
 			{tab === "trace" && (
 				<div className="space-y-4">
-					<div className="bg-[var(--app-surface)] rounded-lg border border-[var(--app-border)] p-4 space-y-3">
+					<div className="bg-(--app-surface) rounded-lg border border-(--app-border) p-4 space-y-3">
 						<div className="flex items-center gap-2 mb-1">
-							<Search size={14} className="text-[var(--app-text-muted)]" />
-							<span className="text-sm font-semibold text-[var(--app-text)]">Trace Configuration</span>
+							<Search size={14} className="text-(--app-text-muted)" />
+							<span className="text-sm font-semibold text-(--app-text)">Trace Configuration</span>
 						</div>
 
 						{/* Mode toggle */}
@@ -498,7 +498,7 @@ export default function NetworkInsights({
 								className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
 									traceMode === "reachable"
 										? "bg-emerald-500/20 border-emerald-500 text-emerald-300"
-										: "bg-[var(--app-input-bg)] border-[var(--app-border)] text-[var(--app-text-muted)]"
+										: "bg-(--app-input-bg) border-(--app-border) text-(--app-text-muted)"
 								}`}
 								onClick={() => setTraceMode("reachable")}
 							>
@@ -510,7 +510,7 @@ export default function NetworkInsights({
 								className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
 									traceMode === "path"
 										? "bg-violet-500/20 border-violet-500 text-violet-300"
-										: "bg-[var(--app-input-bg)] border-[var(--app-border)] text-[var(--app-text-muted)]"
+										: "bg-(--app-input-bg) border-(--app-border) text-(--app-text-muted)"
 								}`}
 								onClick={() => setTraceMode("path")}
 							>
@@ -522,13 +522,13 @@ export default function NetworkInsights({
 						{/* Device selectors */}
 						<div className="flex items-center gap-2">
 							<div className="flex-1">
-								<label className="text-[10px] text-[var(--app-text-dim)] uppercase tracking-wider block mb-1">
+								<label className="text-[10px] text-(--app-text-dim) uppercase tracking-wider block mb-1">
 									{traceMode === "reachable" ? "From Device" : "Source"}
 								</label>
 								<select
 									value={traceFrom}
 									onChange={(e) => setTraceFrom(e.target.value)}
-									className="w-full h-8 text-sm rounded-md bg-[var(--app-input-bg)] border border-[var(--app-border)] text-[var(--app-text)] px-2"
+									className="w-full h-8 text-sm rounded-md bg-(--app-input-bg) border border-(--app-border) text-(--app-text) px-2"
 								>
 									<option value="">Select device…</option>
 									{devices.map((d) => (
@@ -540,15 +540,15 @@ export default function NetworkInsights({
 							</div>
 							{traceMode === "path" && (
 								<>
-									<ArrowRight size={16} className="text-[var(--app-text-dim)] mt-4 shrink-0" />
+									<ArrowRight size={16} className="text-(--app-text-dim) mt-4 shrink-0" />
 									<div className="flex-1">
-										<label className="text-[10px] text-[var(--app-text-dim)] uppercase tracking-wider block mb-1">
+										<label className="text-[10px] text-(--app-text-dim) uppercase tracking-wider block mb-1">
 											Destination
 										</label>
 										<select
 											value={traceTo}
 											onChange={(e) => setTraceTo(e.target.value)}
-											className="w-full h-8 text-sm rounded-md bg-[var(--app-input-bg)] border border-[var(--app-border)] text-[var(--app-text)] px-2"
+											className="w-full h-8 text-sm rounded-md bg-(--app-input-bg) border border-(--app-border) text-(--app-text) px-2"
 										>
 											<option value="">Select device…</option>
 											{devices
@@ -567,10 +567,10 @@ export default function NetworkInsights({
 
 					{/* Trace results */}
 					{traceResult?.type === "reachable" && (
-						<div className="bg-[var(--app-surface)] rounded-lg border border-[var(--app-border)] overflow-hidden">
-							<div className="px-4 py-2.5 border-b border-[var(--app-border)] flex items-center gap-2">
+						<div className="bg-(--app-surface) rounded-lg border border-(--app-border) overflow-hidden">
+							<div className="px-4 py-2.5 border-b border-(--app-border) flex items-center gap-2">
 								<Wifi size={14} className="text-emerald-400" />
-								<span className="text-sm font-bold text-[var(--app-text)]">
+								<span className="text-sm font-bold text-(--app-text)">
 									{traceResult.ids.length} reachable device{traceResult.ids.length !== 1 ? "s" : ""}
 								</span>
 								{traceResult.ids.length < devices.length && (
@@ -579,7 +579,7 @@ export default function NetworkInsights({
 									</span>
 								)}
 							</div>
-							<div className="divide-y divide-[var(--app-border)]">
+							<div className="divide-y divide-(--app-border)">
 								{traceResult.ids.map((id) => {
 									const dev = getDevice(id)
 									if (!dev) return null
@@ -588,12 +588,12 @@ export default function NetworkInsights({
 										<div key={id} className="px-4 py-2 flex items-center gap-3">
 											<div className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: dev.color }} />
 											<div className="flex-1 min-w-0">
-												<span className="text-sm font-medium text-[var(--app-text)]">{dev.name}</span>
-												<span className="text-[var(--app-text-dim)] text-xs ml-1.5">
+												<span className="text-sm font-medium text-(--app-text)">{dev.name}</span>
+												<span className="text-(--app-text-dim) text-xs ml-1.5">
 													{DEVICE_TYPE_LABELS[dev.deviceType as keyof typeof DEVICE_TYPE_LABELS] ?? dev.deviceType}
 												</span>
 											</div>
-											<span className="text-[10px] text-[var(--app-text-muted)] font-mono">
+											<span className="text-[10px] text-(--app-text-muted) font-mono">
 												{neigh.length} link{neigh.length !== 1 ? "s" : ""}
 											</span>
 											{id === traceFrom && (
@@ -609,10 +609,10 @@ export default function NetworkInsights({
 					)}
 
 					{traceResult?.type === "path" && (
-						<div className="bg-[var(--app-surface)] rounded-lg border border-[var(--app-border)] overflow-hidden">
-							<div className="px-4 py-2.5 border-b border-[var(--app-border)] flex items-center gap-2">
+						<div className="bg-(--app-surface) rounded-lg border border-(--app-border) overflow-hidden">
+							<div className="px-4 py-2.5 border-b border-(--app-border) flex items-center gap-2">
 								<GitBranch size={14} className="text-violet-400" />
-								<span className="text-sm font-bold text-[var(--app-text)]">
+								<span className="text-sm font-bold text-(--app-text)">
 									{traceResult.path
 										? `Path found — ${traceResult.path.length - 1} hop${traceResult.path.length - 1 !== 1 ? "s" : ""}`
 										: "No path found"}
@@ -629,9 +629,9 @@ export default function NetworkInsights({
 													{idx > 0 && (
 														<ArrowRight size={14} className="text-violet-400 shrink-0" />
 													)}
-													<div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[var(--app-surface-alt)] rounded-lg border border-[var(--app-border)]">
+													<div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-(--app-surface-alt) rounded-lg border border-(--app-border)">
 														<div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: dev.color }} />
-														<span className="text-xs font-medium text-[var(--app-text)]">{dev.name}</span>
+														<span className="text-xs font-medium text-(--app-text)">{dev.name}</span>
 													</div>
 												</div>
 											)
@@ -639,7 +639,7 @@ export default function NetworkInsights({
 									</div>
 								</div>
 							) : (
-								<div className="p-6 text-center text-[var(--app-text-muted)] text-sm">
+								<div className="p-6 text-center text-(--app-text-muted) text-sm">
 									{!traceFrom || !traceTo ? "Select both source and destination" : "These devices are not connected through any path"}
 								</div>
 							)}
@@ -647,7 +647,7 @@ export default function NetworkInsights({
 					)}
 
 					{!traceFrom && (
-						<div className="text-center py-12 text-[var(--app-text-muted)]">
+						<div className="text-center py-12 text-(--app-text-muted)">
 							<GitBranch size={32} className="mx-auto mb-3 opacity-30" />
 							<p className="text-sm font-medium">Select a device to trace</p>
 							<p className="text-xs mt-1">Find all reachable devices or trace a path between two</p>
@@ -659,27 +659,27 @@ export default function NetworkInsights({
 			{/* ── Ping Simulator ── */}
 			{tab === "ping" && (
 				<div className="space-y-4">
-					<div className="bg-[var(--app-surface)] rounded-lg border border-[var(--app-border)] p-4 space-y-3">
+					<div className="bg-(--app-surface) rounded-lg border border-(--app-border) p-4 space-y-3">
 						<div className="flex items-center gap-2 mb-1">
 							<Radio size={14} className="text-orange-400" />
-							<span className="text-sm font-semibold text-[var(--app-text)]">Ping Configuration</span>
+							<span className="text-sm font-semibold text-(--app-text)">Ping Configuration</span>
 						</div>
 
 						{portsWithIp.length === 0 ? (
-							<div className="text-center py-6 text-[var(--app-text-muted)] text-sm">
+							<div className="text-center py-6 text-(--app-text-muted) text-sm">
 								No ports with IP addresses configured. Right-click a port to assign an IP.
 							</div>
 						) : (
 							<>
 								<div className="flex items-center gap-2">
 									<div className="flex-1">
-										<label className="text-[10px] text-[var(--app-text-dim)] uppercase tracking-wider block mb-1">
+										<label className="text-[10px] text-(--app-text-dim) uppercase tracking-wider block mb-1">
 											Source
 										</label>
 										<select
 											value={pingFrom}
 											onChange={(e) => { setPingFrom(e.target.value); setPingResult(null) }}
-											className="w-full h-8 text-sm rounded-md bg-[var(--app-input-bg)] border border-[var(--app-border)] text-[var(--app-text)] px-2"
+											className="w-full h-8 text-sm rounded-md bg-(--app-input-bg) border border-(--app-border) text-(--app-text) px-2"
 										>
 											<option value="">Select port…</option>
 											{portsWithIp.map((pc) => (
@@ -689,15 +689,15 @@ export default function NetworkInsights({
 											))}
 										</select>
 									</div>
-									<ArrowRight size={16} className="text-[var(--app-text-dim)] mt-4 shrink-0" />
+									<ArrowRight size={16} className="text-(--app-text-dim) mt-4 shrink-0" />
 									<div className="flex-1">
-										<label className="text-[10px] text-[var(--app-text-dim)] uppercase tracking-wider block mb-1">
+										<label className="text-[10px] text-(--app-text-dim) uppercase tracking-wider block mb-1">
 											Destination
 										</label>
 										<select
 											value={pingTo}
 											onChange={(e) => { setPingTo(e.target.value); setPingResult(null) }}
-											className="w-full h-8 text-sm rounded-md bg-[var(--app-input-bg)] border border-[var(--app-border)] text-[var(--app-text)] px-2"
+											className="w-full h-8 text-sm rounded-md bg-(--app-input-bg) border border-(--app-border) text-(--app-text) px-2"
 										>
 											<option value="">Select port…</option>
 											{portsWithIp
@@ -735,7 +735,7 @@ export default function NetworkInsights({
 
 					{/* Ping results */}
 					{pingResult && (
-						<div className={`bg-[var(--app-surface)] rounded-lg border overflow-hidden ${
+						<div className={`bg-(--app-surface) rounded-lg border overflow-hidden ${
 							pingResult.success ? "border-emerald-500/30" : "border-red-500/30"
 						}`}>
 							<div className={`px-4 py-2.5 border-b flex items-center gap-2 ${
@@ -756,23 +756,23 @@ export default function NetworkInsights({
 							{/* Hop trace visualization */}
 							{pingResult.hops.length > 0 && (
 								<div className="p-4 space-y-2">
-									<div className="text-[10px] text-[var(--app-text-dim)] uppercase tracking-wider mb-2">
+									<div className="text-[10px] text-(--app-text-dim) uppercase tracking-wider mb-2">
 										Traceroute — {pingResult.hops.length} hop{pingResult.hops.length !== 1 ? "s" : ""}
 									</div>
 									{pingResult.hops.map((hop, idx) => (
 										<div key={hop.deviceId} className="flex items-center gap-3">
-											<span className="text-[10px] text-[var(--app-text-dim)] w-5 text-right font-mono">{idx + 1}</span>
+											<span className="text-[10px] text-(--app-text-dim) w-5 text-right font-mono">{idx + 1}</span>
 											<div className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: hop.color }} />
 											<div className="flex-1 min-w-0">
-												<span className="text-sm font-medium text-[var(--app-text)]">{hop.deviceName}</span>
-												<span className="text-[var(--app-text-dim)] text-xs ml-1.5">P{hop.portNumber}</span>
+												<span className="text-sm font-medium text-(--app-text)">{hop.deviceName}</span>
+												<span className="text-(--app-text-dim) text-xs ml-1.5">P{hop.portNumber}</span>
 											</div>
-											<span className="text-xs font-mono text-[var(--app-text-muted)]">
+											<span className="text-xs font-mono text-(--app-text-muted)">
 												{hop.ipAddress ? hop.ipAddress.split("/")[0] : "no ip"}
 											</span>
 											<span className="text-[10px] font-mono text-emerald-400 w-10 text-right">{hop.latency}ms</span>
 											{idx < pingResult.hops.length - 1 && (
-												<div className="absolute left-8 w-px h-3 bg-[var(--app-border)]" />
+												<div className="absolute left-8 w-px h-3 bg-(--app-border)" />
 											)}
 										</div>
 									))}
@@ -785,7 +785,7 @@ export default function NetworkInsights({
 							}`}>
 								{pingResult.message}
 								{pingResult.success && (
-									<span className="block mt-1 text-[var(--app-text-dim)]">
+									<span className="block mt-1 text-(--app-text-dim)">
 										Round-trip time: ~{pingResult.totalLatency * 2}ms
 									</span>
 								)}
@@ -794,7 +794,7 @@ export default function NetworkInsights({
 					)}
 
 					{!pingFrom && portsWithIp.length > 0 && (
-						<div className="text-center py-12 text-[var(--app-text-muted)]">
+						<div className="text-center py-12 text-(--app-text-muted)">
 							<Radio size={32} className="mx-auto mb-3 opacity-30" />
 							<p className="text-sm font-medium">Select source and destination to ping</p>
 							<p className="text-xs mt-1">Simulates ICMP ping with hop-by-hop traceroute and subnet validation</p>
@@ -807,7 +807,7 @@ export default function NetworkInsights({
 			{tab === "subnets" && (
 				<div className="space-y-4">
 					{subnetKeys.length === 0 ? (
-						<div className="text-center py-12 text-[var(--app-text-muted)]">
+						<div className="text-center py-12 text-(--app-text-muted)">
 							<Globe size={32} className="mx-auto mb-3 opacity-30" />
 							<p className="text-sm font-medium">No subnets configured</p>
 							<p className="text-xs mt-1">Assign IP addresses (CIDR notation) to ports to see subnet grouping</p>
@@ -816,24 +816,24 @@ export default function NetworkInsights({
 						<>
 							{/* Summary cards */}
 							<div className="grid grid-cols-3 gap-3">
-								<div className="bg-[var(--app-surface)] rounded-lg border border-[var(--app-border)] p-3 text-center">
-									<Globe size={16} className="text-[var(--app-text-muted)] mx-auto mb-1.5" />
-									<div className="text-lg font-bold text-[var(--app-text)]">{subnetKeys.length}</div>
-									<div className="text-[10px] text-[var(--app-text-dim)] uppercase tracking-wider">Subnets</div>
+								<div className="bg-(--app-surface) rounded-lg border border-(--app-border) p-3 text-center">
+									<Globe size={16} className="text-(--app-text-muted) mx-auto mb-1.5" />
+									<div className="text-lg font-bold text-(--app-text)">{subnetKeys.length}</div>
+									<div className="text-[10px] text-(--app-text-dim) uppercase tracking-wider">Subnets</div>
 								</div>
-								<div className="bg-[var(--app-surface)] rounded-lg border border-[var(--app-border)] p-3 text-center">
-									<Network size={16} className="text-[var(--app-text-muted)] mx-auto mb-1.5" />
-									<div className="text-lg font-bold text-[var(--app-text)]">
+								<div className="bg-(--app-surface) rounded-lg border border-(--app-border) p-3 text-center">
+									<Network size={16} className="text-(--app-text-muted) mx-auto mb-1.5" />
+									<div className="text-lg font-bold text-(--app-text)">
 										{Array.from(subnetMap.values()).reduce((sum, s) => sum + s.ports.length, 0)}
 									</div>
-									<div className="text-[10px] text-[var(--app-text-dim)] uppercase tracking-wider">IPs Assigned</div>
+									<div className="text-[10px] text-(--app-text-dim) uppercase tracking-wider">IPs Assigned</div>
 								</div>
-								<div className="bg-[var(--app-surface)] rounded-lg border border-[var(--app-border)] p-3 text-center">
-									<Server size={16} className="text-[var(--app-text-muted)] mx-auto mb-1.5" />
-									<div className="text-lg font-bold text-[var(--app-text)]">
+								<div className="bg-(--app-surface) rounded-lg border border-(--app-border) p-3 text-center">
+									<Server size={16} className="text-(--app-text-muted) mx-auto mb-1.5" />
+									<div className="text-lg font-bold text-(--app-text)">
 										{new Set(Array.from(subnetMap.values()).flatMap((s) => s.ports.map((p) => p.deviceId))).size}
 									</div>
-									<div className="text-[10px] text-[var(--app-text-dim)] uppercase tracking-wider">Devices w/ IP</div>
+									<div className="text-[10px] text-(--app-text-dim) uppercase tracking-wider">Devices w/ IP</div>
 								</div>
 							</div>
 
@@ -847,25 +847,25 @@ export default function NetworkInsights({
 								const deviceIds = [...new Set(info.ports.map((p) => p.deviceId))]
 
 								return (
-									<div key={key} className="bg-[var(--app-surface)] rounded-lg border border-[var(--app-border)] overflow-hidden">
-										<div className="px-4 py-2.5 border-b border-[var(--app-border)] flex items-center justify-between">
+									<div key={key} className="bg-(--app-surface) rounded-lg border border-(--app-border) overflow-hidden">
+										<div className="px-4 py-2.5 border-b border-(--app-border) flex items-center justify-between">
 											<div className="flex items-center gap-2">
 												<Globe size={14} className="text-emerald-400" />
-												<span className="text-sm font-bold font-mono text-[var(--app-text)]">{key}</span>
+												<span className="text-sm font-bold font-mono text-(--app-text)">{key}</span>
 											</div>
-											<div className="flex items-center gap-3 text-[10px] text-[var(--app-text-muted)]">
+											<div className="flex items-center gap-3 text-[10px] text-(--app-text-muted)">
 												<span>Mask: <span className="font-mono">{info.mask}</span></span>
 												<span>Broadcast: <span className="font-mono">{broadcast}</span></span>
 											</div>
 										</div>
 
 										{/* Utilization bar */}
-										<div className="px-4 py-2 border-b border-[var(--app-border)] bg-[var(--app-surface-alt)]">
-											<div className="flex items-center justify-between text-[10px] text-[var(--app-text-dim)] mb-1">
+										<div className="px-4 py-2 border-b border-(--app-border) bg-(--app-surface-alt)">
+											<div className="flex items-center justify-between text-[10px] text-(--app-text-dim) mb-1">
 												<span>IP Usage: {usedCount} / {maxHosts} usable</span>
 												<span className="font-mono">{maxHosts > 0 ? Math.round((usedCount / maxHosts) * 100) : 0}%</span>
 											</div>
-											<div className="w-full h-1.5 bg-[var(--app-surface-hover)] rounded-full overflow-hidden">
+											<div className="w-full h-1.5 bg-(--app-surface-hover) rounded-full overflow-hidden">
 												<div
 													className="h-full rounded-full bg-emerald-500 transition-all"
 													style={{ width: `${maxHosts > 0 ? Math.min(100, (usedCount / maxHosts) * 100) : 0}%` }}
@@ -874,7 +874,7 @@ export default function NetworkInsights({
 										</div>
 
 										{/* Ports in this subnet */}
-										<div className="divide-y divide-[var(--app-border)]">
+										<div className="divide-y divide-(--app-border)">
 											{deviceIds.map((devId) => {
 												const dev = getDevice(devId)
 												if (!dev) return null
@@ -883,7 +883,7 @@ export default function NetworkInsights({
 													<div key={devId} className="px-4 py-2.5 flex items-center gap-3">
 														<div className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: dev.color }} />
 														<div className="flex-1 min-w-0">
-															<div className="text-sm font-medium text-[var(--app-text)]">{dev.name}</div>
+															<div className="text-sm font-medium text-(--app-text)">{dev.name}</div>
 															<div className="flex flex-wrap gap-1.5 mt-1">
 																{devPorts.map((p) => (
 																	<span
@@ -920,20 +920,20 @@ export default function NetworkInsights({
 						].map((item) => (
 							<div
 								key={item.label}
-								className="bg-[var(--app-surface)] rounded-lg border border-[var(--app-border)] p-3 text-center"
+								className="bg-(--app-surface) rounded-lg border border-(--app-border) p-3 text-center"
 							>
-								<item.icon size={16} className="text-[var(--app-text-muted)] mx-auto mb-1.5" />
-								<div className="text-lg font-bold text-[var(--app-text)]">{item.value}</div>
-								<div className="text-[10px] text-[var(--app-text-dim)] uppercase tracking-wider">{item.label}</div>
+								<item.icon size={16} className="text-(--app-text-muted) mx-auto mb-1.5" />
+								<div className="text-lg font-bold text-(--app-text)">{item.value}</div>
+								<div className="text-[10px] text-(--app-text-dim) uppercase tracking-wider">{item.label}</div>
 							</div>
 						))}
 					</div>
 
 					{/* Per-device table */}
-					<div className="bg-[var(--app-surface)] rounded-lg border border-[var(--app-border)] overflow-hidden">
+					<div className="bg-(--app-surface) rounded-lg border border-(--app-border) overflow-hidden">
 						<table className="w-full text-sm border-collapse">
 							<thead>
-								<tr className="bg-[var(--app-surface-alt)] text-[var(--app-text-muted)] text-xs">
+								<tr className="bg-(--app-surface-alt) text-(--app-text-muted) text-xs">
 									<th className="text-left px-3 py-2 font-semibold">Device</th>
 									<th className="text-left px-3 py-2 font-semibold">Type</th>
 									<th className="text-center px-3 py-2 font-semibold">Ports Used</th>
@@ -945,22 +945,22 @@ export default function NetworkInsights({
 							</thead>
 							<tbody>
 								{stats.map((s) => (
-									<tr key={s.device.id} className="border-b border-[var(--app-border)] hover:bg-[var(--app-surface-alt)]">
+									<tr key={s.device.id} className="border-b border-(--app-border) hover:bg-(--app-surface-alt)">
 										<td className="px-3 py-2">
 											<div className="flex items-center gap-1.5">
 												<div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: s.device.color }} />
-												<span className="text-[var(--app-text)] font-medium truncate">{s.device.name}</span>
+												<span className="text-(--app-text) font-medium truncate">{s.device.name}</span>
 											</div>
 										</td>
-										<td className="px-3 py-2 text-[var(--app-text-muted)] text-xs">
+										<td className="px-3 py-2 text-(--app-text-muted) text-xs">
 											{DEVICE_TYPE_LABELS[s.device.deviceType as keyof typeof DEVICE_TYPE_LABELS] ?? s.device.deviceType}
 										</td>
-										<td className="px-3 py-2 text-center text-[var(--app-text)] font-mono text-xs">
+										<td className="px-3 py-2 text-center text-(--app-text) font-mono text-xs">
 											{s.usedPorts}/{s.totalPorts}
 										</td>
 										<td className="px-3 py-2 text-center">
 											<div className="flex items-center justify-center gap-1.5">
-												<div className="w-12 h-1.5 bg-[var(--app-surface-hover)] rounded-full overflow-hidden">
+												<div className="w-12 h-1.5 bg-(--app-surface-hover) rounded-full overflow-hidden">
 													<div
 														className="h-full rounded-full transition-all"
 														style={{
@@ -970,12 +970,12 @@ export default function NetworkInsights({
 														}}
 													/>
 												</div>
-												<span className="text-[10px] text-[var(--app-text-muted)] w-7 text-right font-mono">
+												<span className="text-[10px] text-(--app-text-muted) w-7 text-right font-mono">
 													{s.utilization}%
 												</span>
 											</div>
 										</td>
-										<td className="px-3 py-2 text-center text-[var(--app-text)] font-mono text-xs">
+										<td className="px-3 py-2 text-center text-(--app-text) font-mono text-xs">
 											{s.neighborCount}
 										</td>
 										<td className="px-3 py-2">
@@ -988,10 +988,10 @@ export default function NetworkInsights({
 													))}
 												</div>
 											) : (
-												<span className="text-[var(--app-text-dim)] text-[10px]">—</span>
+												<span className="text-(--app-text-dim) text-[10px]">—</span>
 											)}
 										</td>
-										<td className="px-3 py-2 text-center text-[var(--app-text-muted)] font-mono text-xs">
+										<td className="px-3 py-2 text-center text-(--app-text-muted) font-mono text-xs">
 											{s.reservedCount > 0 ? s.reservedCount : "—"}
 										</td>
 									</tr>

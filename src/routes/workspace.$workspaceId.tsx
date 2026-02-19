@@ -204,7 +204,7 @@ function WorkspacePage() {
 	/* ── Auth guard ── */
 	if (!session?.user) {
 		return (
-			<div className="flex items-center justify-center h-full bg-[var(--app-bg)] text-[var(--app-text-muted)]">
+			<div className="flex items-center justify-center h-full bg-(--app-bg) text-(--app-text-muted)">
 				Please sign in to access this workspace.
 			</div>
 		)
@@ -212,8 +212,8 @@ function WorkspacePage() {
 
 	if (workspaceQuery.isLoading) {
 		return (
-			<div className="flex items-center justify-center h-full bg-[var(--app-bg)]">
-				<div className="animate-pulse text-[var(--app-text-muted)]">
+			<div className="flex items-center justify-center h-full bg-(--app-bg)">
+				<div className="animate-pulse text-(--app-text-muted)">
 					Loading workspace…
 				</div>
 			</div>
@@ -224,7 +224,7 @@ function WorkspacePage() {
 
 	if (!workspace) {
 		return (
-			<div className="flex items-center justify-center h-full bg-[var(--app-bg)] text-red-400">
+			<div className="flex items-center justify-center h-full bg-(--app-bg) text-red-400">
 				Workspace not found
 			</div>
 		)
@@ -262,8 +262,8 @@ function WorkspacePage() {
 			{/* Main area */}
 			<div className="flex-1 flex flex-col overflow-hidden">
 				{/* Tab bar */}
-				<div className="flex items-center gap-1 px-4 py-2 bg-[var(--app-surface-alt)] border-b border-(--app-border)">
-					<div className="text-sm font-bold text-[var(--app-text)] mr-3 flex items-center gap-2">
+				<div className="flex items-center gap-1 px-4 py-2 bg-(--app-surface-alt) border-b border-(--app-border)">
+					<div className="text-sm font-bold text-(--app-text) mr-3 flex items-center gap-2">
 						<Cable size={14} className="text-cyan-400" />
 						{editingWorkspaceName ? (
 							<form
@@ -282,7 +282,7 @@ function WorkspacePage() {
 									ref={wsNameInputRef}
 									value={workspaceNameDraft}
 									onChange={(e) => setWorkspaceNameDraft(e.target.value)}
-									className="bg-[var(--app-input-bg)] border border-[var(--app-border)] rounded px-1.5 py-0.5 text-sm text-[var(--app-text)] w-40 focus:outline-none focus:ring-1 focus:ring-cyan-400"
+									className="bg-(--app-input-bg) border border-(--app-border) rounded px-1.5 py-0.5 text-sm text-(--app-text) w-40 focus:outline-none focus:ring-1 focus:ring-cyan-400"
 									onKeyDown={(e) => {
 										if (e.key === "Escape") setEditingWorkspaceName(false)
 									}}
@@ -292,7 +292,7 @@ function WorkspacePage() {
 								</button>
 								<button
 									type="button"
-									className="text-[var(--app-text-muted)] hover:text-[var(--app-text)] p-0.5"
+									className="text-(--app-text-muted) hover:text-(--app-text) p-0.5"
 									onClick={() => setEditingWorkspaceName(false)}
 									title="Cancel"
 								>
@@ -318,8 +318,8 @@ function WorkspacePage() {
 						type="button"
 						className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 ${
 							activeTab === "topology"
-								? "bg-[var(--app-surface-hover)] text-white"
-								: "text-[var(--app-text-muted)] hover:text-white"
+								? "bg-(--app-surface-hover) text-white"
+								: "text-(--app-text-muted) hover:text-white"
 						}`}
 						onClick={() => setActiveTab("topology")}
 					>
@@ -329,8 +329,8 @@ function WorkspacePage() {
 						type="button"
 						className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 ${
 							activeTab === "connections"
-								? "bg-[var(--app-surface-hover)] text-white"
-								: "text-[var(--app-text-muted)] hover:text-white"
+								? "bg-(--app-surface-hover) text-white"
+								: "text-(--app-text-muted) hover:text-white"
 						}`}
 						onClick={() => setActiveTab("connections")}
 					>
@@ -340,8 +340,8 @@ function WorkspacePage() {
 						type="button"
 						className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 ${
 							activeTab === "insights"
-								? "bg-[var(--app-surface-hover)] text-white"
-								: "text-[var(--app-text-muted)] hover:text-white"
+								? "bg-(--app-surface-hover) text-white"
+								: "text-(--app-text-muted) hover:text-white"
 						}`}
 						onClick={() => setActiveTab("insights")}
 					>
@@ -380,7 +380,7 @@ function WorkspacePage() {
 						}
 					/>
 				) : activeTab === "connections" ? (
-					<div className="flex-1 overflow-auto bg-[var(--app-bg)] p-4">
+					<div className="flex-1 overflow-auto bg-(--app-bg) p-4">
 						<ConnectionsTable
 							connections={connections}
 							devices={devices}

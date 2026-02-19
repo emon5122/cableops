@@ -41,7 +41,7 @@ export default function ConnectionsTable({
 
 	if (connections.length === 0) {
 		return (
-			<div className="flex flex-col items-center justify-center py-12 text-[var(--app-text-muted)]">
+			<div className="flex flex-col items-center justify-center py-12 text-(--app-text-muted)">
 				<ArrowLeftRight size={32} className="opacity-30 mb-3" />
 				<p className="text-sm font-medium">No connections yet</p>
 				<p className="text-xs mt-1">
@@ -55,7 +55,7 @@ export default function ConnectionsTable({
 		<div className="overflow-x-auto">
 			<table className="w-full text-sm border-collapse">
 				<thead>
-					<tr className="bg-[var(--app-surface)] text-[var(--app-text-muted)] text-xs">
+					<tr className="bg-(--app-surface) text-(--app-text-muted) text-xs">
 						<th className="text-left px-3 py-2 font-semibold w-8">
 							#
 						</th>
@@ -91,8 +91,8 @@ export default function ConnectionsTable({
 								key={conn.id}
 								className={`border-b border-(--app-border) cursor-pointer transition-colors ${
 									isHighlighted
-										? "bg-[var(--app-surface-hover)]"
-										: "hover:bg-[var(--app-surface-alt)]"
+										? "bg-(--app-surface-hover)"
+										: "hover:bg-(--app-surface-alt)"
 								}`}
 								onClick={() =>
 									onHighlight(
@@ -100,7 +100,7 @@ export default function ConnectionsTable({
 									)
 								}
 							>
-								<td className="px-3 py-2 text-[var(--app-text-muted)]">
+								<td className="px-3 py-2 text-(--app-text-muted)">
 									{idx + 1}
 								</td>
 								<td className="px-3 py-2">
@@ -112,15 +112,15 @@ export default function ConnectionsTable({
 													dA?.color ?? "#555",
 											}}
 										/>
-										<span className="text-[var(--app-text)] font-medium truncate">
+										<span className="text-(--app-text) font-medium truncate">
 											{dA?.name ?? "Unknown"}
 										</span>
 									</div>
 								</td>
-								<td className="px-3 py-2 text-[var(--app-text)] font-mono">
+								<td className="px-3 py-2 text-(--app-text) font-mono">
 									{conn.portA}
 								</td>
-								<td className="px-3 py-2 text-center text-[var(--app-text-muted)]">
+								<td className="px-3 py-2 text-center text-(--app-text-muted)">
 									⇄
 								</td>
 								<td className="px-3 py-2">
@@ -132,15 +132,15 @@ export default function ConnectionsTable({
 													dB?.color ?? "#555",
 											}}
 										/>
-										<span className="text-[var(--app-text)] font-medium truncate">
+										<span className="text-(--app-text) font-medium truncate">
 											{dB?.name ?? "Unknown"}
 										</span>
 									</div>
 								</td>
-								<td className="px-3 py-2 text-[var(--app-text)] font-mono">
+								<td className="px-3 py-2 text-(--app-text) font-mono">
 									{conn.portB}
 								</td>
-								<td className="px-3 py-2 text-[var(--app-text-muted)] text-xs">
+								<td className="px-3 py-2 text-(--app-text-muted) text-xs">
 									{(() => {
 										const pcA = getPortConfig(conn.deviceAId, conn.portA)
 										const pcB = getPortConfig(conn.deviceBId, conn.portB)
@@ -150,7 +150,7 @@ export default function ConnectionsTable({
 								<td className="px-3 py-2 text-right">
 									<button
 										type="button"
-										className="text-[var(--app-text-muted)] hover:text-red-400 p-1 rounded transition-colors"
+										className="text-(--app-text-muted) hover:text-red-400 p-1 rounded transition-colors"
 										onClick={(e) => {
 											e.stopPropagation()
 											onDelete(conn.id)

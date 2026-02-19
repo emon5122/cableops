@@ -107,7 +107,7 @@ export default function WorkspaceSidebar({
 									className={`flex flex-col items-center gap-1 py-2 px-1 rounded-md border text-[9px] font-semibold transition-all ${
 										newType === t
 											? "border-white/40 bg-(--app-surface-hover) text-white"
-											: "border-(--app-border) bg-(--app-input-bg) text-(--app-text-muted) hover:border-[var(--app-border-light)]"
+											: "border-(--app-border) bg-(--app-input-bg) text-(--app-text-muted) hover:border-(--app-border-light)"
 									}`}
 									onClick={() => handleSelectType(t)}
 								>
@@ -158,7 +158,7 @@ export default function WorkspaceSidebar({
 												key={c}
 												type="button"
 												className={`w-8 h-8 rounded-md border-2 transition-all ${
-													newColor === c ? "border-white scale-110" : "border-transparent hover:border-[var(--app-text-dim)]"
+													newColor === c ? "border-white scale-110" : "border-transparent hover:border-(--app-text-dim)"
 												}`}
 												style={{ backgroundColor: c }}
 												onClick={() => {
@@ -175,12 +175,12 @@ export default function WorkspaceSidebar({
 					<Button
 						type="submit"
 						size="sm"
-						className="w-full bg-[var(--app-surface-hover)] hover:bg-[var(--app-border-light)] text-[var(--app-text)] border border-(--app-border)"
+						className="w-full bg-(--app-surface-hover) hover:bg-(--app-border-light) text-(--app-text) border border-(--app-border)"
 					>
 						<Plus size={14} /> Add {DEVICE_TYPE_LABELS[newType]}
 					</Button>
 				</form>
-				<p className="text-xs text-[var(--app-text-muted)] mt-2 leading-relaxed">
+				<p className="text-xs text-(--app-text-muted) mt-2 leading-relaxed">
 					Click two free ports to connect. Right-click a port for VLAN, speed, alias settings.
 				</p>
 			</div>
@@ -188,20 +188,20 @@ export default function WorkspaceSidebar({
 			{/* Search */}
 			<div className="p-4 border-b border-(--app-border)">
 				<div className="relative">
-					<Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--app-text-muted)]" />
+					<Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-(--app-text-muted)" />
 					<Input
 						value={searchQuery}
 						onChange={(e) => onSearchChange(e.target.value)}
 						placeholder="Search devices, ports…"
-						className="pl-8 bg-[var(--app-input-bg)] border-(--app-border) text-[var(--app-text)] h-8 text-sm"
+						className="pl-8 bg-(--app-input-bg) border-(--app-border) text-(--app-text) h-8 text-sm"
 					/>
 				</div>
 			</div>
 
 			{/* Device list */}
 			<div className="flex-1 overflow-y-auto p-4 space-y-2">
-				<h3 className="text-sm font-bold text-[var(--app-text)] mb-2">Devices ({devices.length})</h3>
-				{devices.length === 0 && <p className="text-xs text-[var(--app-text-muted)]">No devices yet. Add one above.</p>}
+				<h3 className="text-sm font-bold text-(--app-text) mb-2">Devices ({devices.length})</h3>
+				{devices.length === 0 && <p className="text-xs text-(--app-text-muted)">No devices yet. Add one above.</p>}
 				{devices
 					.filter((d) => !searchQuery || d.name.toLowerCase().includes(searchQuery.toLowerCase()))
 					.map((device) => {
@@ -215,7 +215,7 @@ export default function WorkspaceSidebar({
 							<div
 								key={device.id}
 								className={`rounded-lg border transition-colors ${
-									isActive ? "border-white/30 bg-[var(--app-surface-hover)]" : "border-(--app-border) bg-[var(--app-surface)]"
+									isActive ? "border-white/30 bg-(--app-surface-hover)" : "border-(--app-border) bg-(--app-surface)"
 								}`}
 							>
 								<div className="flex items-center gap-2 px-3 py-2 cursor-pointer" onClick={() => onDeviceSelect(device.id)}>
@@ -223,7 +223,7 @@ export default function WorkspaceSidebar({
 									{editingNameDevice === device.id ? (
 										<input
 											autoFocus
-											className="text-sm font-semibold text-[var(--app-text)] bg-[var(--app-input-bg)] border border-[var(--app-border-light)] rounded px-1 flex-1 outline-none"
+											className="text-sm font-semibold text-(--app-text) bg-(--app-input-bg) border border-(--app-border-light) rounded px-1 flex-1 outline-none"
 											value={editNameValue}
 											onChange={(e) => setEditNameValue(e.target.value)}
 											onKeyDown={(e) => {
@@ -241,7 +241,7 @@ export default function WorkspaceSidebar({
 										/>
 									) : (
 										<span
-											className="text-sm font-semibold text-[var(--app-text)] truncate flex-1"
+											className="text-sm font-semibold text-(--app-text) truncate flex-1"
 											onDoubleClick={(e) => {
 												e.stopPropagation()
 												setEditingNameDevice(device.id)
@@ -252,7 +252,7 @@ export default function WorkspaceSidebar({
 											{device.name}
 										</span>
 									)}
-									<span className="text-xs text-[var(--app-text-muted)]">
+									<span className="text-xs text-(--app-text-muted)">
 										{device.portCount}p · {deviceConns.length}c
 									</span>
 
@@ -260,7 +260,7 @@ export default function WorkspaceSidebar({
 									<div className="relative">
 										<button
 											type="button"
-											className="w-5 h-5 rounded-sm border border-[var(--app-border-light)] hover:border-white/40 transition-colors"
+											className="w-5 h-5 rounded-sm border border-(--app-border-light) hover:border-white/40 transition-colors"
 											style={{ backgroundColor: device.color }}
 											onClick={(e) => {
 												e.stopPropagation()
@@ -269,14 +269,14 @@ export default function WorkspaceSidebar({
 											title="Change color"
 										/>
 										{editingColorDevice === device.id && (
-											<div className="absolute right-0 top-full mt-1 z-60 p-2 bg-[var(--app-surface)] border border-(--app-border) rounded-lg shadow-xl min-w-39">
+											<div className="absolute right-0 top-full mt-1 z-60 p-2 bg-(--app-surface) border border-(--app-border) rounded-lg shadow-xl min-w-39">
 												<div className="grid grid-cols-4 gap-1.5">
 													{DEFAULT_COLORS.map((c) => (
 														<button
 															key={c}
 															type="button"
 															className={`w-7 h-7 rounded-md border-2 transition-all ${
-																device.color === c ? "border-white scale-110" : "border-transparent hover:border-[var(--app-text-dim)]"
+																device.color === c ? "border-white scale-110" : "border-transparent hover:border-(--app-text-dim)"
 															}`}
 															style={{ backgroundColor: c }}
 															onClick={(e) => {
@@ -293,7 +293,7 @@ export default function WorkspaceSidebar({
 
 									<button
 										type="button"
-										className="text-[var(--app-text-muted)] hover:text-white p-0.5"
+										className="text-(--app-text-muted) hover:text-white p-0.5"
 										onClick={(e) => {
 											e.stopPropagation()
 											setExpandedDevice(isExpanded ? null : device.id)
@@ -303,7 +303,7 @@ export default function WorkspaceSidebar({
 									</button>
 									<button
 										type="button"
-										className="text-[var(--app-text-muted)] hover:text-red-400 p-0.5"
+										className="text-(--app-text-muted) hover:text-red-400 p-0.5"
 										onClick={(e) => {
 											e.stopPropagation()
 											onDeleteDevice(device.id)
@@ -361,7 +361,7 @@ export default function WorkspaceSidebar({
 													const myPort = isA ? conn.portA : conn.portB
 													const peerDev = devices.find((d) => d.id === peerId)
 													return (
-														<div key={conn.id} className="flex items-center gap-1 text-xs text-[var(--app-text-muted)]">
+														<div key={conn.id} className="flex items-center gap-1 text-xs text-(--app-text-muted)">
 															<Cable size={10} />
 															<span>
 																:{myPort} → {peerDev?.name ?? "?"}:{peerPort}
@@ -391,12 +391,12 @@ export default function WorkspaceSidebar({
 
 			{/* Selected device footer */}
 			{selectedDevice && !expandedDevice && (
-				<div className="p-4 border-t border-(--app-border) bg-[var(--app-surface)]">
+				<div className="p-4 border-t border-(--app-border) bg-(--app-surface)">
 					<div className="flex items-center gap-2 mb-1">
 						<DeviceIcon type={selectedDevice.deviceType} color={selectedDevice.color} size={14} />
-						<span className="text-sm font-bold text-[var(--app-text)]">{selectedDevice.name}</span>
+						<span className="text-sm font-bold text-(--app-text)">{selectedDevice.name}</span>
 					</div>
-					<p className="text-xs text-[var(--app-text-muted)]">
+					<p className="text-xs text-(--app-text-muted)">
 						{DEVICE_TYPE_LABELS[selectedDevice.deviceType as DeviceType] ?? selectedDevice.deviceType} ·{" "}
 						{selectedDevice.portCount} ports ·{" "}
 						{connections.filter((c) => c.deviceAId === selectedDevice.id || c.deviceBId === selectedDevice.id).length}{" "}

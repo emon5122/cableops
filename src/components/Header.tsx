@@ -9,12 +9,12 @@ export default function Header() {
 	const { theme, toggleTheme } = useTheme()
 
 	return (
-		<header className="h-14 px-4 flex items-center gap-3 bg-linear-to-b from-[var(--app-header-from)] to-[var(--app-header-to)] border-b border-(--app-border) shrink-0 dark:from-[var(--app-header-from)] dark:to-[var(--app-header-to)]">
+		<header className="h-14 px-4 flex items-center gap-3 bg-linear-to-b from-(--app-header-from) to-(--app-header-to) border-b border-(--app-border) shrink-0 dark:from-(--app-header-from) dark:to-(--app-header-to)">
 			<Link to="/" className="flex items-center gap-2">
 				<Cable className="text-cyan-400" size={22} />
-				<h1 className="text-lg font-bold text-[var(--app-text)]">CableOps</h1>
+				<h1 className="text-lg font-bold text-(--app-text)">CableOps</h1>
 			</Link>
-			<span className="text-[var(--app-text-muted)] text-xs border border-(--app-border) px-2 py-0.5 rounded-full">
+			<span className="text-(--app-text-muted) text-xs border border-(--app-border) px-2 py-0.5 rounded-full">
 				beta
 			</span>
 
@@ -23,7 +23,7 @@ export default function Header() {
 				<Button
 					size="xs"
 					variant="ghost"
-					className="text-[var(--app-text-muted)] hover:text-white"
+					className="text-(--app-text-muted) hover:text-white"
 					onClick={toggleTheme}
 					title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
 				>
@@ -32,7 +32,7 @@ export default function Header() {
 				{session?.user ? (
 					<>
 						<div className="flex items-center gap-2">
-							<div className="w-7 h-7 rounded-full bg-[var(--app-surface-hover)] flex items-center justify-center">
+							<div className="w-7 h-7 rounded-full bg-(--app-surface-hover) flex items-center justify-center">
 								{session.user.image ? (
 									<img
 										src={session.user.image}
@@ -40,17 +40,17 @@ export default function Header() {
 										className="w-7 h-7 rounded-full"
 									/>
 								) : (
-									<User size={14} className="text-[var(--app-text-muted)]" />
+									<User size={14} className="text-(--app-text-muted)" />
 								)}
 							</div>
-							<span className="text-sm text-[var(--app-text)] hidden sm:inline">
+							<span className="text-sm text-(--app-text) hidden sm:inline">
 								{session.user.name ?? session.user.email}
 							</span>
 						</div>
 						<Button
 							size="xs"
 							variant="ghost"
-							className="text-[var(--app-text-muted)] hover:text-white"
+							className="text-(--app-text-muted) hover:text-white"
 							onClick={() => void authClient.signOut()}
 						>
 							<LogOut size={14} />
