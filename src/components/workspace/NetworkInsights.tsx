@@ -4,13 +4,15 @@ import {
     ArrowRight,
     CircleDot,
     GitBranch,
+    Globe,
     Layers,
     Network,
+    Radio,
     Search,
     Server,
     Wifi
 } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 
 interface NetworkInsightsProps {
 	devices: DeviceRow[]
