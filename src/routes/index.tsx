@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTRPC } from "@/integrations/trpc/react";
 import { authClient } from "@/lib/auth-client";
+import { safeParseWorkspaceSnapshot } from "@/lib/workspace-snapshot-schema";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { motion } from "framer-motion";
@@ -56,11 +57,15 @@ function Dashboard() {
 		if (!userId) return;
 		try {
 			const text = await file.text();
-			const parsed = JSON.parse(text) as {
-				workspace?: { name?: string };
-			};
+			const parsed = JSON.parse(text) as unknown;
+			const snapshotResult = safeParseWorkspaceSnapshot(parsed);
+			if (!snapshotResult.success) {
+				console.error("Import failed: invalid snapshot schema", snapshotResult.error.format());
+				return;
+			}
+			const snapshot = snapshotResult.data;
 
-			const importedName = parsed.workspace?.name?.trim();
+			const importedName = snapshot.workspace.name?.trim();
 			const createdWorkspace = await createWorkspace.mutateAsync({
 				name: importedName && importedName.length > 0 ? importedName : "Imported workspace",
 				ownerId: userId,
@@ -68,7 +73,7 @@ function Dashboard() {
 
 			await importSnapshot.mutateAsync({
 				workspaceId: createdWorkspace.id,
-				snapshot: parsed as never,
+				snapshot,
 			});
 
 			await queryClient.invalidateQueries({

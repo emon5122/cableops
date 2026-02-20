@@ -4,12 +4,19 @@ import NetworkInsights from "@/components/workspace/NetworkInsights";
 import WorkspaceSidebar from "@/components/workspace/WorkspaceSidebar";
 import { useTRPC } from "@/integrations/trpc/react";
 import { authClient } from "@/lib/auth-client";
-import type { DeviceType, InterfaceRow, RouteRow } from "@/lib/topology-types";
+import type {
+	ConnectionRow,
+	DeviceType,
+	InterfaceRow,
+	RouteRow,
+} from "@/lib/topology-types";
 import {
 	DEVICE_CAPABILITIES,
+	getNetworkSegment,
 	getNextDhcpIp,
 	isPortConnected,
 } from "@/lib/topology-types";
+import { safeParseWorkspaceSnapshot } from "@/lib/workspace-snapshot-schema";
 import {
 	useMutation,
 	useQueries,
@@ -196,6 +203,78 @@ function WorkspacePage() {
 		trpc.workspaces.importSnapshot.mutationOptions({ onSuccess: invalidateAll }),
 	);
 
+	const tryAssignDhcpToClient = useCallback(
+		(
+			clientDeviceId: string,
+			clientPortNumber: number,
+			nextConnections: ConnectionRow[],
+		): boolean => {
+			const existingClientIp = portConfigs.find(
+				(pc) =>
+					pc.deviceId === clientDeviceId &&
+					pc.portNumber === clientPortNumber &&
+					!!pc.ipAddress,
+			);
+			if (existingClientIp) return false;
+
+			const segment = getNetworkSegment(
+				clientDeviceId,
+				clientPortNumber,
+				nextConnections,
+				devices,
+				portConfigs,
+			);
+
+			const dhcpCandidates = segment.ports
+				.map((sp) => {
+					const host = devices.find((d) => d.id === sp.deviceId);
+					if (!host) return null;
+					const iface = portConfigs.find(
+						(pc) => pc.deviceId === sp.deviceId && pc.portNumber === sp.portNumber,
+					);
+					if (
+						!iface?.dhcpEnabled ||
+						!iface.dhcpRangeStart ||
+						!iface.dhcpRangeEnd
+					)
+						return null;
+
+					const caps = DEVICE_CAPABILITIES[host.deviceType as DeviceType];
+					const priority = caps?.canBeGateway ? 0 : 1;
+					return {
+						host,
+						hostPort: sp.portNumber,
+						priority,
+					};
+				})
+				.filter(
+					(v): v is { host: (typeof devices)[number]; hostPort: number; priority: number } =>
+						Boolean(v),
+				)
+				.sort((a, b) => a.priority - b.priority);
+
+			for (const candidate of dhcpCandidates) {
+				const ip = getNextDhcpIp(
+					candidate.host,
+					candidate.hostPort,
+					nextConnections,
+					portConfigs,
+				);
+				if (!ip) continue;
+
+				upsertPortConfig.mutate({
+					deviceId: clientDeviceId,
+					portNumber: clientPortNumber,
+					ipAddress: ip,
+				});
+				return true;
+			}
+
+			return false;
+		},
+		[devices, portConfigs, upsertPortConfig],
+	);
+
 	/* ── Port click (connect flow) ── */
 	const handlePortClick = useCallback(
 		(deviceId: string, portNumber: number) => {
@@ -251,57 +330,31 @@ function WorkspacePage() {
 				},
 				{
 					onSuccess: () => {
-						/* Auto-assign DHCP IP to the client on wired connections */
-						if (!isWifi) {
-							/* Determine which interface is the DHCP server */
-							const ifaceA = portConfigs.find(
-								(pc) =>
-									pc.deviceId === selectedPort.deviceId &&
-									pc.portNumber === selectedPort.portNumber,
-							);
-							const ifaceB = portConfigs.find(
-								(pc) =>
-									pc.deviceId === deviceId && pc.portNumber === portNumber,
-							);
+						const pendingConnection = {
+							id: `pending-${Date.now()}`,
+							workspaceId,
+							deviceAId: selectedPort.deviceId,
+							portA: selectedPort.portNumber,
+							deviceBId: deviceId,
+							portB: portNumber,
+							speed: null,
+							connectionType: isWifi ? "wifi" : "wired",
+							createdAt: new Date() as unknown as ConnectionRow["createdAt"],
+						} as ConnectionRow;
+						const nextConnections = [...connections, pendingConnection];
 
-							let dhcpServer: typeof devA;
-							let serverPort: number | null = null;
-							let clientId: string | null = null;
-							let clientPort: number | null = null;
+						const maybeAssignClient = (id: string, pNum: number) => {
+							const dev = devices.find((d) => d.id === id);
+							if (!dev) return;
+							const caps = DEVICE_CAPABILITIES[dev.deviceType as DeviceType];
+							const isClientLike =
+								caps.layer === "endpoint" || caps.wifiClient;
+							if (!isClientLike) return;
+							tryAssignDhcpToClient(id, pNum, nextConnections);
+						};
 
-							if (ifaceA?.dhcpEnabled && devA) {
-								dhcpServer = devA;
-								serverPort = selectedPort.portNumber;
-								clientId = deviceId;
-								clientPort = portNumber;
-							} else if (ifaceB?.dhcpEnabled && devB) {
-								dhcpServer = devB;
-								serverPort = portNumber;
-								clientId = selectedPort.deviceId;
-								clientPort = selectedPort.portNumber;
-							}
-
-							if (
-								dhcpServer &&
-								clientId &&
-								clientPort !== null &&
-								serverPort !== null
-							) {
-								const ip = getNextDhcpIp(
-									dhcpServer,
-									serverPort,
-									connections,
-									portConfigs,
-								);
-								if (ip) {
-									upsertPortConfig.mutate({
-										deviceId: clientId,
-										portNumber: clientPort,
-										ipAddress: ip,
-									});
-								}
-							}
-						}
+						maybeAssignClient(selectedPort.deviceId, selectedPort.portNumber);
+						maybeAssignClient(deviceId, portNumber);
 
 						/* Auto-set port role when connecting to cloud/internet */
 						const cloudDev =
@@ -343,8 +396,7 @@ function WorkspacePage() {
 			addConnection,
 			workspaceId,
 			devices,
-			portConfigs,
-			upsertPortConfig,
+			tryAssignDhcpToClient,
 		],
 	);
 
@@ -408,9 +460,14 @@ function WorkspacePage() {
 			try {
 				const text = await file.text();
 				const parsed = JSON.parse(text) as unknown;
+				const snapshotResult = safeParseWorkspaceSnapshot(parsed);
+				if (!snapshotResult.success) {
+					console.error("Import failed: invalid snapshot schema", snapshotResult.error.format());
+					return;
+				}
 				importSnapshot.mutate({
 					workspaceId,
-					snapshot: parsed as never,
+					snapshot: snapshotResult.data,
 				});
 			} catch (error) {
 				console.error("Import failed", error);
@@ -511,23 +568,19 @@ function WorkspacePage() {
 						},
 						{
 							onSuccess: () => {
-								/* Auto-assign DHCP IP to the client (WiFi port 0) */
-								const hostDev = devices.find((d) => d.id === hostDeviceId);
-								if (hostDev) {
-									const ip = getNextDhcpIp(
-										hostDev,
-										0,
-										connections,
-										portConfigs,
-									);
-									if (ip) {
-										upsertPortConfig.mutate({
-											deviceId: clientDeviceId,
-											portNumber: 0,
-											ipAddress: ip,
-										});
-									}
-								}
+								const pendingConnection = {
+									id: `pending-${Date.now()}`,
+									workspaceId,
+									deviceAId: clientDeviceId,
+									portA: 0,
+									deviceBId: hostDeviceId,
+									portB: 0,
+									speed: null,
+									connectionType: "wifi",
+									createdAt: new Date() as unknown as ConnectionRow["createdAt"],
+								} as ConnectionRow;
+								const nextConnections = [...connections, pendingConnection];
+								tryAssignDhcpToClient(clientDeviceId, 0, nextConnections);
 							},
 						},
 					);

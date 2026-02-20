@@ -7,6 +7,7 @@ import {
 	type InterfaceRow,
 	parseIp,
 } from "@/lib/topology-types";
+import { workspaceSnapshotSchema } from "@/lib/workspace-snapshot-schema";
 import type { TRPCRouterRecord } from "@trpc/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -246,81 +247,7 @@ const workspacesRouter = {
 		.input(
 			z.object({
 				workspaceId: z.string(),
-				snapshot: z.object({
-					version: z.number(),
-					workspace: z.object({
-						name: z.string().optional(),
-					}),
-					devices: z.array(
-						z.object({
-							id: z.string(),
-							name: z.string(),
-							deviceType: z.string(),
-							color: z.string(),
-							portCount: z.number().int(),
-							positionX: z.number().int(),
-							positionY: z.number().int(),
-							maxSpeed: z.string().nullable().optional(),
-							ipForwarding: z.boolean().nullable().optional(),
-						}),
-					),
-					interfaces: z.array(
-						z.object({
-							id: z.string(),
-							deviceId: z.string(),
-							portNumber: z.number().int(),
-							alias: z.string().nullable().optional(),
-							reserved: z.boolean(),
-							reservedLabel: z.string().nullable().optional(),
-							speed: z.string().nullable().optional(),
-							vlan: z.number().int().nullable().optional(),
-							ipAddress: z.string().nullable().optional(),
-							macAddress: z.string().nullable().optional(),
-							portMode: z.string().nullable().optional(),
-							portRole: z.string().nullable().optional(),
-							dhcpEnabled: z.boolean().nullable().optional(),
-							dhcpRangeStart: z.string().nullable().optional(),
-							dhcpRangeEnd: z.string().nullable().optional(),
-							ssid: z.string().nullable().optional(),
-							wifiPassword: z.string().nullable().optional(),
-							natEnabled: z.boolean().nullable().optional(),
-							gateway: z.string().nullable().optional(),
-						}),
-					),
-					connections: z.array(
-						z.object({
-							id: z.string(),
-							deviceAId: z.string(),
-							portA: z.number().int(),
-							deviceBId: z.string(),
-							portB: z.number().int(),
-							speed: z.string().nullable().optional(),
-							connectionType: z.string().nullable().optional(),
-						}),
-					),
-					routes: z.array(
-						z.object({
-							id: z.string(),
-							deviceId: z.string(),
-							destination: z.string(),
-							nextHop: z.string(),
-							interfacePort: z.number().int().nullable().optional(),
-							metric: z.number().int().nullable().optional(),
-						}),
-					),
-					annotations: z.array(
-						z.object({
-							id: z.string(),
-							kind: z.string(),
-							label: z.string().nullable().optional(),
-							x: z.number().int(),
-							y: z.number().int(),
-							width: z.number().int(),
-							height: z.number().int(),
-							color: z.string(),
-						}),
-					),
-				}),
+				snapshot: workspaceSnapshotSchema,
 			}),
 		)
 		.mutation(async ({ input }) => {

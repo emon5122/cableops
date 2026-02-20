@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cableops.local/schemas/workspace-snapshot.schema.json",
+  "title": "CableOps Workspace Snapshot",
+  "type": "object",
+  "required": [
+    "version",
+    "exportedAt",
+    "workspace",
+    "devices",
+    "interfaces",
+    "connections",
+    "routes",
+    "annotations"
+  ],
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Snapshot format version"
+    },
+    "exportedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "workspace": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "devices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "deviceType", "color", "portCount", "positionX", "positionY"],
+        "properties": {
+          "id": { "type": "string" },
+          "workspaceId": { "type": "string" },
+          "name": { "type": "string" },
+          "deviceType": {
+            "type": "string",
+            "enum": [
+              "switch",
+              "router",
+              "pc",
+              "server",
+              "ip-phone",
+              "smartphone",
+              "camera",
+              "firewall",
+              "access-point",
+              "cloud",
+              "hub",
+              "patch-panel",
+              "nas",
+              "printer",
+              "load-balancer",
+              "modem",
+              "laptop",
+              "tablet",
+              "ap"
+            ]
+          },
+          "color": { "type": "string" },
+          "portCount": { "type": "integer", "minimum": 0 },
+          "positionX": { "type": "integer" },
+          "positionY": { "type": "integer" },
+          "maxSpeed": { "type": ["string", "null"] },
+          "ipForwarding": { "type": ["boolean", "null"] },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "interfaces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "deviceId", "portNumber"],
+        "properties": {
+          "id": { "type": "string" },
+          "deviceId": { "type": "string" },
+          "portNumber": { "type": "integer" },
+          "alias": { "type": ["string", "null"] },
+          "reserved": { "type": "boolean" },
+          "reservedLabel": { "type": ["string", "null"] },
+          "speed": { "type": ["string", "null"] },
+          "vlan": { "type": ["integer", "null"] },
+          "ipAddress": { "type": ["string", "null"] },
+          "macAddress": { "type": ["string", "null"] },
+          "portMode": { "type": ["string", "null"] },
+          "portRole": { "type": ["string", "null"] },
+          "dhcpEnabled": { "type": ["boolean", "null"] },
+          "dhcpRangeStart": { "type": ["string", "null"] },
+          "dhcpRangeEnd": { "type": ["string", "null"] },
+          "ssid": { "type": ["string", "null"] },
+          "wifiPassword": { "type": ["string", "null"] },
+          "natEnabled": { "type": ["boolean", "null"] },
+          "gateway": { "type": ["string", "null"] },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "connections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "deviceAId", "portA", "deviceBId", "portB"],
+        "properties": {
+          "id": { "type": "string" },
+          "workspaceId": { "type": "string" },
+          "deviceAId": { "type": "string" },
+          "portA": { "type": "integer" },
+          "deviceBId": { "type": "string" },
+          "portB": { "type": "integer" },
+          "speed": { "type": ["string", "null"] },
+          "connectionType": {
+            "type": "string",
+            "enum": ["wired", "wifi"]
+          },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "deviceId", "destination", "nextHop"],
+        "properties": {
+          "id": { "type": "string" },
+          "deviceId": { "type": "string" },
+          "destination": { "type": "string" },
+          "nextHop": { "type": "string" },
+          "interfacePort": { "type": ["integer", "null"] },
+          "metric": { "type": ["integer", "null"] },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "annotations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "x", "y", "width", "height", "color"],
+        "properties": {
+          "id": { "type": "string" },
+          "workspaceId": { "type": "string" },
+          "kind": {
+            "type": "string",
+            "enum": ["rect", "label"]
+          },
+          "label": { "type": ["string", "null"] },
+          "x": { "type": "integer" },
+          "y": { "type": "integer" },
+          "width": { "type": "integer" },
+          "height": { "type": "integer" },
+          "color": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

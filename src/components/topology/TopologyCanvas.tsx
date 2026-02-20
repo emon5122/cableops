@@ -2,23 +2,23 @@ import DeviceContextMenu from "@/components/topology/DeviceContextMenu";
 import DeviceIcon from "@/components/topology/DeviceIcon";
 import PortContextMenu from "@/components/topology/PortContextMenu";
 import {
-	type AnnotationRow,
-	type ConnectionRow,
-	DEVICE_CAPABILITIES,
-	DEVICE_NODE_WIDTH,
-	DEVICE_TYPE_LABELS,
-	type DeviceRow,
-	type DeviceType,
-	type DragState,
-	getDeviceNodeHeight,
-	getPortDisplayColor,
-	getPortPosition,
-	INFO_STRIP_HEIGHT,
-	type InterfaceRow,
-	isPortConnected,
-	luminance,
-	PORT_SIZE,
-	type PortSelection,
+    type AnnotationRow,
+    type ConnectionRow,
+    DEVICE_CAPABILITIES,
+    DEVICE_NODE_WIDTH,
+    DEVICE_TYPE_LABELS,
+    type DeviceRow,
+    type DeviceType,
+    type DragState,
+    getDeviceNodeHeight,
+    getPortDisplayColor,
+    getPortPosition,
+    INFO_STRIP_HEIGHT,
+    type InterfaceRow,
+    isPortConnected,
+    luminance,
+    PORT_SIZE,
+    type PortSelection,
 } from "@/lib/topology-types";
 import { motion } from "framer-motion";
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -452,6 +452,133 @@ export default function TopologyCanvas({
 		},
 		[],
 	);
+
+	const connectionLookup = useMemo(() => {
+		const byPair = new Map<string, string[]>();
+		for (const conn of connections) {
+			const pair = [conn.deviceAId, conn.deviceBId].sort().join("|");
+			const ids = byPair.get(pair) ?? [];
+			ids.push(conn.id);
+			byPair.set(pair, ids);
+		}
+		return byPair;
+	}, [connections]);
+
+	const activeConnectionIds = useMemo(() => {
+		if (connections.length === 0) return new Set<string>();
+
+		const deviceNeighbors = new Map<string, Set<string>>();
+		for (const conn of connections) {
+			if (!deviceNeighbors.has(conn.deviceAId)) {
+				deviceNeighbors.set(conn.deviceAId, new Set<string>());
+			}
+			if (!deviceNeighbors.has(conn.deviceBId)) {
+				deviceNeighbors.set(conn.deviceBId, new Set<string>());
+			}
+			deviceNeighbors.get(conn.deviceAId)?.add(conn.deviceBId);
+			deviceNeighbors.get(conn.deviceBId)?.add(conn.deviceAId);
+		}
+
+		const trafficEndpoints = new Set<string>();
+		for (const d of devices) {
+			if (d.deviceType === "cloud") trafficEndpoints.add(d.id);
+		}
+		for (const pc of portConfigs) {
+			if (pc.ipAddress || pc.gateway || pc.dhcpEnabled || pc.natEnabled) {
+				trafficEndpoints.add(pc.deviceId);
+			}
+		}
+
+		const endpointIds = Array.from(trafficEndpoints);
+		if (endpointIds.length < 2) {
+			const fallback = new Set<string>();
+			for (const conn of connections) {
+				const aHasIp = portConfigs.some(
+					(pc) => pc.deviceId === conn.deviceAId && !!pc.ipAddress,
+				);
+				const bHasIp = portConfigs.some(
+					(pc) => pc.deviceId === conn.deviceBId && !!pc.ipAddress,
+				);
+				if (aHasIp && bHasIp) fallback.add(conn.id);
+			}
+			return fallback;
+		}
+
+		const getPath = (fromId: string, toId: string): string[] | null => {
+			if (fromId === toId) return [fromId];
+			const queue = [fromId];
+			const visited = new Set<string>([fromId]);
+			const parent = new Map<string, string>();
+
+			while (queue.length > 0) {
+				const current = queue.shift()!;
+				for (const neighbor of deviceNeighbors.get(current) ?? []) {
+					if (visited.has(neighbor)) continue;
+					visited.add(neighbor);
+					parent.set(neighbor, current);
+					if (neighbor === toId) {
+						const path = [toId];
+						let node = toId;
+						while (parent.has(node)) {
+							node = parent.get(node)!;
+							path.unshift(node);
+						}
+						return path;
+					}
+					queue.push(neighbor);
+				}
+			}
+
+			return null;
+		};
+
+		const active = new Set<string>();
+		for (let i = 0; i < endpointIds.length; i++) {
+			for (let j = i + 1; j < endpointIds.length; j++) {
+				const path = getPath(endpointIds[i]!, endpointIds[j]!);
+				if (!path || path.length < 2) continue;
+				for (let k = 0; k < path.length - 1; k++) {
+					const pair = [path[k]!, path[k + 1]!].sort().join("|");
+					const connIds = connectionLookup.get(pair);
+					if (connIds?.length) {
+						for (const connId of connIds) active.add(connId);
+					}
+				}
+			}
+		}
+
+		return active;
+	}, [connections, devices, portConfigs, connectionLookup]);
+
+	const getPathAnchor = useCallback((path: string) => {
+		if (typeof document === "undefined") return null;
+		try {
+			const svgPath = document.createElementNS(
+				"http://www.w3.org/2000/svg",
+				"path",
+			);
+			svgPath.setAttribute("d", path);
+			const total = svgPath.getTotalLength();
+			if (!Number.isFinite(total) || total <= 0) return null;
+
+			const midLen = total * 0.5;
+			const p = svgPath.getPointAtLength(midLen);
+			const pBefore = svgPath.getPointAtLength(Math.max(0, midLen - 1));
+			const pAfter = svgPath.getPointAtLength(Math.min(total, midLen + 1));
+			const tx = pAfter.x - pBefore.x;
+			const ty = pAfter.y - pBefore.y;
+			const tLen = Math.hypot(tx, ty) || 1;
+
+			return {
+				x: p.x,
+				y: p.y,
+				normalX: -ty / tLen,
+				normalY: tx / tLen,
+			};
+		} catch {
+			return null;
+		}
+	}, []);
 
 	/* ── Port config lookup ── */
 	const getPortConfig = useCallback(
@@ -998,8 +1125,11 @@ export default function TopologyCanvas({
 
 					const path = buildWirePath(from, to, idx, connections.length);
 					const isWireSel = selectedWire === conn.id;
-					const midX = (from.x + to.x) / 2;
-					const midY = (from.y + to.y) / 2;
+					const anchor = getPathAnchor(path);
+					const midX = anchor?.x ?? (from.x + to.x) / 2;
+					const midY = anchor?.y ?? (from.y + to.y) / 2;
+					const normalX = anchor?.normalX ?? 0;
+					const normalY = anchor?.normalY ?? -1;
 					const portAConfig = getPortConfig(conn.deviceAId, conn.portA);
 					const portBConfig = getPortConfig(conn.deviceBId, conn.portB);
 					const wireMeta: string[] = [];
@@ -1030,8 +1160,7 @@ export default function TopologyCanvas({
 						(!conn.connectionType &&
 							((capsA?.wifiHost && capsB?.wifiClient) ||
 								(capsB?.wifiHost && capsA?.wifiClient)));
-					const hasRoutableIps =
-						!!portAConfig?.ipAddress && !!portBConfig?.ipAddress;
+					const isFlowActive = activeConnectionIds.has(conn.id);
 
 					return (
 						<g key={conn.id}>
@@ -1099,8 +1228,8 @@ export default function TopologyCanvas({
 							{/* Speed label at midpoint */}
 							{conn.speed && (
 								<text
-									x={midX}
-									y={midY - 6}
+									x={midX + normalX * 10}
+									y={midY + normalY * 10}
 									textAnchor="middle"
 									fill="var(--app-text-muted)"
 									fontSize="9"
@@ -1141,7 +1270,7 @@ export default function TopologyCanvas({
 									</text>
 								</g>
 							)}
-							{hasRoutableIps && !isWifi && (
+							{isFlowActive && !isWifi && (
 								<>
 									<circle r="2.1" fill="#22d3ee" opacity="0.9">
 										<animateMotion
@@ -1163,7 +1292,9 @@ export default function TopologyCanvas({
 								</>
 							)}
 							{showWireMeta && (
-								<g transform={`translate(${midX},${midY - (isWifi ? 20 : 10)})`}>
+								<g
+									transform={`translate(${midX + normalX * (isWifi ? 26 : 14)},${midY + normalY * (isWifi ? 26 : 14)})`}
+								>
 									<rect
 										x={-58}
 										y={-8}
