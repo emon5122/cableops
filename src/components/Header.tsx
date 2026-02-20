@@ -1,12 +1,12 @@
-import { Button } from "@/components/ui/button"
-import { useTheme } from "@/hooks/use-theme"
-import { authClient } from "@/lib/auth-client"
-import { Link } from "@tanstack/react-router"
-import { Cable, LogOut, Moon, Sun, User } from "lucide-react"
+import { Link } from "@tanstack/react-router";
+import { Cable, LogOut, Moon, Sun, User } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useTheme } from "@/hooks/use-theme";
+import { authClient } from "@/lib/auth-client";
 
 export default function Header() {
-	const { data: session } = authClient.useSession()
-	const { theme, toggleTheme } = useTheme()
+	const { data: session } = authClient.useSession();
+	const { theme, toggleTheme } = useTheme();
 
 	return (
 		<header className="h-14 px-4 flex items-center gap-3 bg-linear-to-b from-(--app-header-from) to-(--app-header-to) border-b border-(--app-border) shrink-0 dark:from-(--app-header-from) dark:to-(--app-header-to)">
@@ -66,5 +66,5 @@ export default function Header() {
 				)}
 			</div>
 		</header>
-	)
+	);
 }

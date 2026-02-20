@@ -1,56 +1,49 @@
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { useTRPC } from "@/integrations/trpc/react"
-import { authClient } from "@/lib/auth-client"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { createFileRoute, Link } from "@tanstack/react-router"
-import {
-	ArrowRight,
-	Cable,
-	Folder,
-	Network,
-	Plus,
-	Trash2,
-} from "lucide-react"
-import { useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { ArrowRight, Cable, Folder, Network, Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useTRPC } from "@/integrations/trpc/react";
+import { authClient } from "@/lib/auth-client";
 
-export const Route = createFileRoute("/")({ component: Dashboard })
+export const Route = createFileRoute("/")({ component: Dashboard });
 
 function Dashboard() {
-	const { data: session, isPending: authLoading } = authClient.useSession()
-	const [newName, setNewName] = useState("")
-	const trpc = useTRPC()
-	const queryClient = useQueryClient()
+	const { data: session, isPending: authLoading } = authClient.useSession();
+	const [newName, setNewName] = useState("");
+	const trpc = useTRPC();
+	const queryClient = useQueryClient();
 
-	const userId = session?.user?.id ?? ""
+	const userId = session?.user?.id ?? "";
 
 	const workspacesQuery = useQuery(
 		trpc.workspaces.list.queryOptions(
 			{ ownerId: userId },
 			{ enabled: !!userId },
 		),
-	)
+	);
 
 	const createWorkspace = useMutation(
 		trpc.workspaces.create.mutationOptions({
 			onSuccess: () => {
 				void queryClient.invalidateQueries({
 					queryKey: trpc.workspaces.list.queryKey({ ownerId: userId }),
-				})
-				setNewName("")
+				});
+				setNewName("");
 			},
 		}),
-	)
+	);
 
 	const deleteWorkspace = useMutation(
 		trpc.workspaces.delete.mutationOptions({
 			onSuccess: () => {
 				void queryClient.invalidateQueries({
 					queryKey: trpc.workspaces.list.queryKey({ ownerId: userId }),
-				})
+				});
 			},
 		}),
-	)
+	);
 
 	/* ── Not signed in ── */
 	if (!authLoading && !session?.user) {
@@ -59,17 +52,15 @@ function Dashboard() {
 				<div className="max-w-lg text-center">
 					<div className="flex items-center justify-center gap-3 mb-6">
 						<Cable className="text-cyan-400" size={48} />
-						<h1 className="text-4xl font-black text-(--app-text)">
-							CableOps
-						</h1>
+						<h1 className="text-4xl font-black text-(--app-text)">CableOps</h1>
 					</div>
 					<p className="text-(--app-text-muted) text-lg mb-2">
 						Ethernet Cable Connection Manager
 					</p>
 					<p className="text-(--app-text-muted) text-sm mb-8 max-w-md mx-auto">
-						Visualize, plan, and document your network cable
-						topology. Drag-and-drop devices, connect ports, and keep
-						track of every connection.
+						Visualize, plan, and document your network cable topology.
+						Drag-and-drop devices, connect ports, and keep track of every
+						connection.
 					</p>
 					<div className="flex items-center justify-center gap-4">
 						<Link to="/auth/sign-in">
@@ -107,7 +98,7 @@ function Dashboard() {
 					</div>
 				</div>
 			</div>
-		)
+		);
 	}
 
 	/* ── Loading ── */
@@ -116,20 +107,18 @@ function Dashboard() {
 			<div className="min-h-full flex items-center justify-center bg-(--app-bg)">
 				<div className="animate-pulse text-(--app-text-muted)">Loading…</div>
 			</div>
-		)
+		);
 	}
 
 	/* ── Dashboard ── */
-	const workspaces = workspacesQuery.data ?? []
+	const workspaces = workspacesQuery.data ?? [];
 
 	return (
 		<div className="min-h-full bg-(--app-bg) p-6">
 			<div className="max-w-4xl mx-auto">
 				<div className="flex items-center justify-between mb-8">
 					<div>
-						<h2 className="text-2xl font-bold text-(--app-text)">
-							Workspaces
-						</h2>
+						<h2 className="text-2xl font-bold text-(--app-text)">Workspaces</h2>
 						<p className="text-sm text-(--app-text-muted) mt-1">
 							Each workspace contains its own device topology
 						</p>
@@ -140,12 +129,12 @@ function Dashboard() {
 				<form
 					className="flex gap-2 mb-8"
 					onSubmit={(e) => {
-						e.preventDefault()
-						if (!newName.trim()) return
+						e.preventDefault();
+						if (!newName.trim()) return;
 						createWorkspace.mutate({
 							name: newName.trim(),
 							ownerId: userId,
-						})
+						});
 					}}
 				>
 					<Input
@@ -191,10 +180,7 @@ function Dashboard() {
 						>
 							<div className="flex items-start justify-between mb-3">
 								<div className="flex items-center gap-2">
-									<Network
-										size={18}
-										className="text-cyan-400"
-									/>
+									<Network size={18} className="text-cyan-400" />
 									<h3 className="text-sm font-bold text-(--app-text)">
 										{ws.name}
 									</h3>
@@ -202,9 +188,7 @@ function Dashboard() {
 								<button
 									type="button"
 									className="text-(--app-text-muted) hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-									onClick={() =>
-										deleteWorkspace.mutate({ id: ws.id })
-									}
+									onClick={() => deleteWorkspace.mutate({ id: ws.id })}
 									title="Delete workspace"
 								>
 									<Trash2 size={14} />
@@ -213,9 +197,7 @@ function Dashboard() {
 							<p className="text-xs text-(--app-text-muted) mb-3">
 								Created{" "}
 								{ws.createdAt
-									? new Date(
-											ws.createdAt,
-										).toLocaleDateString()
+									? new Date(ws.createdAt).toLocaleDateString()
 									: "recently"}
 							</p>
 							<Link
@@ -230,7 +212,7 @@ function Dashboard() {
 				</div>
 			</div>
 		</div>
-	)
+	);
 }
 
 function FeatureCard({
@@ -238,9 +220,9 @@ function FeatureCard({
 	title,
 	desc,
 }: {
-	icon: React.ReactNode
-	title: string
-	desc: string
+	icon: React.ReactNode;
+	title: string;
+	desc: string;
 }) {
 	return (
 		<div className="bg-(--app-surface) border border-(--app-border) rounded-xl p-5 text-left">
@@ -248,5 +230,5 @@ function FeatureCard({
 			<h3 className="text-sm font-bold text-(--app-text) mb-1">{title}</h3>
 			<p className="text-xs text-(--app-text-muted) leading-relaxed">{desc}</p>
 		</div>
-	)
+	);
 }

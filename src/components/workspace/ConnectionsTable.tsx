@@ -1,16 +1,28 @@
-import type { ConnectionRow, DeviceRow, DeviceType, InterfaceRow } from "@/lib/topology-types"
-import { DEVICE_TYPE_LABELS, negotiatedSpeed } from "@/lib/topology-types"
-import { ArrowLeftRight, Cable, Layers, Monitor, Trash2, Zap } from "lucide-react"
-import { useMemo } from "react"
+import {
+	ArrowLeftRight,
+	Cable,
+	Layers,
+	Monitor,
+	Trash2,
+	Zap,
+} from "lucide-react";
+import { useMemo } from "react";
+import type {
+	ConnectionRow,
+	DeviceRow,
+	DeviceType,
+	InterfaceRow,
+} from "@/lib/topology-types";
+import { DEVICE_TYPE_LABELS, negotiatedSpeed } from "@/lib/topology-types";
 
 interface ConnectionsTableProps {
-	connections: ConnectionRow[]
-	devices: DeviceRow[]
-	portConfigs: InterfaceRow[]
-	onDelete: (id: string) => void
-	highlightedConnectionId: string | null
-	onHighlight: (id: string | null) => void
-	searchQuery: string
+	connections: ConnectionRow[];
+	devices: DeviceRow[];
+	portConfigs: InterfaceRow[];
+	onDelete: (id: string) => void;
+	highlightedConnectionId: string | null;
+	onHighlight: (id: string | null) => void;
+	searchQuery: string;
 }
 
 export default function ConnectionsTable({
@@ -22,41 +34,51 @@ export default function ConnectionsTable({
 	onHighlight,
 	searchQuery,
 }: ConnectionsTableProps) {
-	const getDevice = (id: string) => devices.find((d) => d.id === id)
+	const getDevice = (id: string) => devices.find((d) => d.id === id);
 	const getPortConfig = (deviceId: string, portNumber: number) =>
-		portConfigs.find((pc) => pc.deviceId === deviceId && pc.portNumber === portNumber)
+		portConfigs.find(
+			(pc) => pc.deviceId === deviceId && pc.portNumber === portNumber,
+		);
 
 	const filtered = connections.filter((conn) => {
-		if (!searchQuery) return true
-		const q = searchQuery.toLowerCase()
-		const dA = getDevice(conn.deviceAId)
-		const dB = getDevice(conn.deviceBId)
+		if (!searchQuery) return true;
+		const q = searchQuery.toLowerCase();
+		const dA = getDevice(conn.deviceAId);
+		const dB = getDevice(conn.deviceBId);
 		return (
 			dA?.name.toLowerCase().includes(q) ||
 			dB?.name.toLowerCase().includes(q) ||
 			String(conn.portA).includes(q) ||
 			String(conn.portB).includes(q) ||
 			conn.speed?.toLowerCase().includes(q)
-		)
-	})
+		);
+	});
 
 	/* ── Stats ── */
 	const stats = useMemo(() => {
-		const totalPorts = devices.reduce((s, d) => s + d.portCount, 0)
-		const usedPorts = new Set<string>()
+		const totalPorts = devices.reduce((s, d) => s + d.portCount, 0);
+		const usedPorts = new Set<string>();
 		for (const c of connections) {
-			usedPorts.add(`${c.deviceAId}:${c.portA}`)
-			usedPorts.add(`${c.deviceBId}:${c.portB}`)
+			usedPorts.add(`${c.deviceAId}:${c.portA}`);
+			usedPorts.add(`${c.deviceBId}:${c.portB}`);
 		}
-		const utilPct = totalPorts > 0 ? Math.round((usedPorts.size / totalPorts) * 100) : 0
+		const utilPct =
+			totalPorts > 0 ? Math.round((usedPorts.size / totalPorts) * 100) : 0;
 
-		const vlans = new Set<number>()
+		const vlans = new Set<number>();
 		for (const pc of portConfigs) {
-			if (pc.vlan != null) vlans.add(pc.vlan)
+			if (pc.vlan != null) vlans.add(pc.vlan);
 		}
 
-		return { totalDevices: devices.length, totalConnections: connections.length, utilPct, totalPorts, usedPorts: usedPorts.size, vlanCount: vlans.size }
-	}, [devices, connections, portConfigs])
+		return {
+			totalDevices: devices.length,
+			totalConnections: connections.length,
+			utilPct,
+			totalPorts,
+			usedPorts: usedPorts.size,
+			vlanCount: vlans.size,
+		};
+	}, [devices, connections, portConfigs]);
 
 	if (connections.length === 0) {
 		return (
@@ -67,61 +89,81 @@ export default function ConnectionsTable({
 					Click two free ports to create a connection
 				</p>
 			</div>
-		)
+		);
 	}
 
 	return (
 		<div className="overflow-x-auto">
 			{/* Stats cards */}
 			<div className="grid grid-cols-4 gap-2 px-3 py-3 border-b border-(--app-border)">
-				{([
-					{ icon: Monitor, label: "Devices", value: stats.totalDevices, color: "text-blue-400" },
-					{ icon: Cable, label: "Links", value: stats.totalConnections, color: "text-emerald-400" },
-					{ icon: Zap, label: "Port Util", value: `${stats.utilPct}%`, sub: `${stats.usedPorts}/${stats.totalPorts}`, color: "text-amber-400" },
-					{ icon: Layers, label: "VLANs", value: stats.vlanCount, color: "text-cyan-400" },
-				] as const).map((s) => (
-					<div key={s.label} className="bg-(--app-surface) rounded-lg border border-(--app-border) px-3 py-2">
+				{(
+					[
+						{
+							icon: Monitor,
+							label: "Devices",
+							value: stats.totalDevices,
+							color: "text-blue-400",
+						},
+						{
+							icon: Cable,
+							label: "Links",
+							value: stats.totalConnections,
+							color: "text-emerald-400",
+						},
+						{
+							icon: Zap,
+							label: "Port Util",
+							value: `${stats.utilPct}%`,
+							sub: `${stats.usedPorts}/${stats.totalPorts}`,
+							color: "text-amber-400",
+						},
+						{
+							icon: Layers,
+							label: "VLANs",
+							value: stats.vlanCount,
+							color: "text-cyan-400",
+						},
+					] as const
+				).map((s) => (
+					<div
+						key={s.label}
+						className="bg-(--app-surface) rounded-lg border border-(--app-border) px-3 py-2"
+					>
 						<div className="flex items-center gap-1.5 mb-1">
 							<s.icon size={12} className={s.color} />
-							<span className="text-[10px] text-(--app-text-muted) uppercase tracking-wider">{s.label}</span>
+							<span className="text-[10px] text-(--app-text-muted) uppercase tracking-wider">
+								{s.label}
+							</span>
 						</div>
-						<div className="text-lg font-bold text-(--app-text) leading-tight">{s.value}</div>
-						{"sub" in s && s.sub && <div className="text-[10px] text-(--app-text-dim) font-mono">{s.sub}</div>}
+						<div className="text-lg font-bold text-(--app-text) leading-tight">
+							{s.value}
+						</div>
+						{"sub" in s && s.sub && (
+							<div className="text-[10px] text-(--app-text-dim) font-mono">
+								{s.sub}
+							</div>
+						)}
 					</div>
-				))}</div>
+				))}
+			</div>
 			<table className="w-full text-sm border-collapse">
 				<thead>
 					<tr className="bg-(--app-surface) text-(--app-text-muted) text-xs">
-						<th className="text-left px-3 py-2 font-semibold w-8">
-							#
-						</th>
-						<th className="text-left px-3 py-2 font-semibold">
-							Device A
-						</th>
-						<th className="text-left px-3 py-2 font-semibold w-16">
-							Port
-						</th>
-						<th className="text-center px-3 py-2 font-semibold w-10">
-							⇄
-						</th>
-						<th className="text-left px-3 py-2 font-semibold">
-							Device B
-						</th>
-						<th className="text-left px-3 py-2 font-semibold w-16">
-							Port
-						</th>
-						<th className="text-left px-3 py-2 font-semibold w-20">
-							Speed
-						</th>
+						<th className="text-left px-3 py-2 font-semibold w-8">#</th>
+						<th className="text-left px-3 py-2 font-semibold">Device A</th>
+						<th className="text-left px-3 py-2 font-semibold w-16">Port</th>
+						<th className="text-center px-3 py-2 font-semibold w-10">⇄</th>
+						<th className="text-left px-3 py-2 font-semibold">Device B</th>
+						<th className="text-left px-3 py-2 font-semibold w-16">Port</th>
+						<th className="text-left px-3 py-2 font-semibold w-20">Speed</th>
 						<th className="text-right px-3 py-2 font-semibold w-12" />
 					</tr>
 				</thead>
 				<tbody>
 					{filtered.map((conn, idx) => {
-						const dA = getDevice(conn.deviceAId)
-						const dB = getDevice(conn.deviceBId)
-						const isHighlighted =
-							highlightedConnectionId === conn.id
+						const dA = getDevice(conn.deviceAId);
+						const dB = getDevice(conn.deviceBId);
+						const isHighlighted = highlightedConnectionId === conn.id;
 						return (
 							<tr
 								key={conn.id}
@@ -130,22 +172,15 @@ export default function ConnectionsTable({
 										? "bg-(--app-surface-hover)"
 										: "hover:bg-(--app-surface-alt)"
 								}`}
-								onClick={() =>
-									onHighlight(
-										isHighlighted ? null : conn.id,
-									)
-								}
+								onClick={() => onHighlight(isHighlighted ? null : conn.id)}
 							>
-								<td className="px-3 py-2 text-(--app-text-muted)">
-									{idx + 1}
-								</td>
+								<td className="px-3 py-2 text-(--app-text-muted)">{idx + 1}</td>
 								<td className="px-3 py-2">
 									<div className="flex items-center gap-1.5">
 										<div
 											className="w-2.5 h-2.5 rounded-sm shrink-0"
 											style={{
-												backgroundColor:
-													dA?.color ?? "#555",
+												backgroundColor: dA?.color ?? "#555",
 											}}
 										/>
 										<div className="min-w-0">
@@ -153,12 +188,20 @@ export default function ConnectionsTable({
 												{dA?.name ?? "Unknown"}
 											</span>
 											<span className="text-[10px] text-(--app-text-dim)">
-												{dA ? (DEVICE_TYPE_LABELS[dA.deviceType as DeviceType] ?? dA.deviceType) : ""}
+												{dA
+													? (DEVICE_TYPE_LABELS[dA.deviceType as DeviceType] ??
+														dA.deviceType)
+													: ""}
 											</span>
 											{(() => {
-												const pcA = getPortConfig(conn.deviceAId, conn.portA)
-												if (pcA?.ipAddress) return <span className="text-[10px] text-emerald-400 font-mono block">{pcA.ipAddress}</span>
-												return null
+												const pcA = getPortConfig(conn.deviceAId, conn.portA);
+												if (pcA?.ipAddress)
+													return (
+														<span className="text-[10px] text-emerald-400 font-mono block">
+															{pcA.ipAddress}
+														</span>
+													);
+												return null;
 											})()}
 										</div>
 									</div>
@@ -174,8 +217,7 @@ export default function ConnectionsTable({
 										<div
 											className="w-2.5 h-2.5 rounded-sm shrink-0"
 											style={{
-												backgroundColor:
-													dB?.color ?? "#555",
+												backgroundColor: dB?.color ?? "#555",
 											}}
 										/>
 										<div className="min-w-0">
@@ -183,12 +225,20 @@ export default function ConnectionsTable({
 												{dB?.name ?? "Unknown"}
 											</span>
 											<span className="text-[10px] text-(--app-text-dim)">
-												{dB ? (DEVICE_TYPE_LABELS[dB.deviceType as DeviceType] ?? dB.deviceType) : ""}
+												{dB
+													? (DEVICE_TYPE_LABELS[dB.deviceType as DeviceType] ??
+														dB.deviceType)
+													: ""}
 											</span>
 											{(() => {
-												const pcB = getPortConfig(conn.deviceBId, conn.portB)
-												if (pcB?.ipAddress) return <span className="text-[10px] text-emerald-400 font-mono block">{pcB.ipAddress}</span>
-												return null
+												const pcB = getPortConfig(conn.deviceBId, conn.portB);
+												if (pcB?.ipAddress)
+													return (
+														<span className="text-[10px] text-emerald-400 font-mono block">
+															{pcB.ipAddress}
+														</span>
+													);
+												return null;
 											})()}
 										</div>
 									</div>
@@ -198,9 +248,13 @@ export default function ConnectionsTable({
 								</td>
 								<td className="px-3 py-2 text-(--app-text-muted) text-xs">
 									{(() => {
-										const pcA = getPortConfig(conn.deviceAId, conn.portA)
-										const pcB = getPortConfig(conn.deviceBId, conn.portB)
-										return negotiatedSpeed(pcA?.speed, pcB?.speed) ?? conn.speed ?? "—"
+										const pcA = getPortConfig(conn.deviceAId, conn.portA);
+										const pcB = getPortConfig(conn.deviceBId, conn.portB);
+										return (
+											negotiatedSpeed(pcA?.speed, pcB?.speed) ??
+											conn.speed ??
+											"—"
+										);
 									})()}
 								</td>
 								<td className="px-3 py-2 text-right">
@@ -208,8 +262,8 @@ export default function ConnectionsTable({
 										type="button"
 										className="text-(--app-text-muted) hover:text-red-400 p-1 rounded transition-colors"
 										onClick={(e) => {
-											e.stopPropagation()
-											onDelete(conn.id)
+											e.stopPropagation();
+											onDelete(conn.id);
 										}}
 										title="Disconnect"
 									>
@@ -217,10 +271,10 @@ export default function ConnectionsTable({
 									</button>
 								</td>
 							</tr>
-						)
+						);
 					})}
 				</tbody>
 			</table>
 		</div>
-	)
+	);
 }

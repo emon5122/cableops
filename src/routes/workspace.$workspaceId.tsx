@@ -1,177 +1,196 @@
-import TopologyCanvas from "@/components/topology/TopologyCanvas"
-import ConnectionsTable from "@/components/workspace/ConnectionsTable"
-import NetworkInsights from "@/components/workspace/NetworkInsights"
-import WorkspaceSidebar from "@/components/workspace/WorkspaceSidebar"
-import { useTRPC } from "@/integrations/trpc/react"
-import { authClient } from "@/lib/auth-client"
-import type { DeviceType, InterfaceRow } from "@/lib/topology-types"
-import { DEVICE_CAPABILITIES, getNextDhcpIp, isPortConnected } from "@/lib/topology-types"
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
-import { createFileRoute } from "@tanstack/react-router"
-import { Cable, Check, Lightbulb, Network, Pencil, Table2, X } from "lucide-react"
-import { useCallback, useMemo, useRef, useState } from "react"
+import {
+	useMutation,
+	useQueries,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
+import { createFileRoute } from "@tanstack/react-router";
+import {
+	Cable,
+	Check,
+	Lightbulb,
+	Network,
+	Pencil,
+	Table2,
+	X,
+} from "lucide-react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import TopologyCanvas from "@/components/topology/TopologyCanvas";
+import ConnectionsTable from "@/components/workspace/ConnectionsTable";
+import NetworkInsights from "@/components/workspace/NetworkInsights";
+import WorkspaceSidebar from "@/components/workspace/WorkspaceSidebar";
+import { useTRPC } from "@/integrations/trpc/react";
+import { authClient } from "@/lib/auth-client";
+import type { DeviceType, InterfaceRow } from "@/lib/topology-types";
+import {
+	DEVICE_CAPABILITIES,
+	getNextDhcpIp,
+	isPortConnected,
+} from "@/lib/topology-types";
 
 export const Route = createFileRoute("/workspace/$workspaceId")({
 	component: WorkspacePage,
-})
+});
 
-type ViewTab = "topology" | "connections" | "insights"
+type ViewTab = "topology" | "connections" | "insights";
 
 function WorkspacePage() {
-	const { workspaceId } = Route.useParams()
-	const { data: session } = authClient.useSession()
-	const trpc = useTRPC()
-	const queryClient = useQueryClient()
+	const { workspaceId } = Route.useParams();
+	const { data: session } = authClient.useSession();
+	const trpc = useTRPC();
+	const queryClient = useQueryClient();
 
 	/* ── State ── */
-	const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(
-		null,
-	)
+	const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
 	const [selectedPort, setSelectedPort] = useState<{
-		deviceId: string
-		portNumber: number
-	} | null>(null)
-	const [searchQuery, setSearchQuery] = useState("")
-	const [activeTab, setActiveTab] = useState<ViewTab>("topology")
+		deviceId: string;
+		portNumber: number;
+	} | null>(null);
+	const [searchQuery, setSearchQuery] = useState("");
+	const [activeTab, setActiveTab] = useState<ViewTab>("topology");
 	const [highlightedConnectionId, setHighlightedConnectionId] = useState<
 		string | null
-	>(null)
-	const [editingWorkspaceName, setEditingWorkspaceName] = useState(false)
-	const [workspaceNameDraft, setWorkspaceNameDraft] = useState("")
-	const wsNameInputRef = useRef<HTMLInputElement>(null)
+	>(null);
+	const [editingWorkspaceName, setEditingWorkspaceName] = useState(false);
+	const [workspaceNameDraft, setWorkspaceNameDraft] = useState("");
+	const wsNameInputRef = useRef<HTMLInputElement>(null);
 
 	/* ── Queries ── */
 	const workspaceQuery = useQuery(
 		trpc.workspaces.get.queryOptions({ id: workspaceId }),
-	)
+	);
 	const devicesQuery = useQuery(
 		trpc.devices.list.queryOptions({ workspaceId }),
-	)
+	);
 	const connectionsQuery = useQuery(
 		trpc.connections.list.queryOptions({ workspaceId }),
-	)
+	);
 	const annotationsQuery = useQuery(
 		trpc.annotations.list.queryOptions({ workspaceId }),
-	)
+	);
 
-	const devices = devicesQuery.data ?? []
-	const connections = connectionsQuery.data ?? []
-	const annotations = annotationsQuery.data ?? []
+	const devices = devicesQuery.data ?? [];
+	const connections = connectionsQuery.data ?? [];
+	const annotations = annotationsQuery.data ?? [];
 
 	/* ── Interfaces (per-port config including IP, DHCP, WiFi, NAT) ── */
 	const interfaceQueries = useQueries({
 		queries: devices.map((d) =>
 			trpc.interfaces.list.queryOptions({ deviceId: d.id }),
 		),
-	})
+	});
 
 	const portConfigs = useMemo<InterfaceRow[]>(() => {
-		const all: InterfaceRow[] = []
+		const all: InterfaceRow[] = [];
 		for (const q of interfaceQueries) {
-			if (q.data) all.push(...q.data)
+			if (q.data) all.push(...q.data);
 		}
-		return all
-	}, [interfaceQueries])
+		return all;
+	}, [interfaceQueries]);
 
 	/* ── Invalidation helper ── */
 	const invalidateAll = useCallback(() => {
 		void queryClient.invalidateQueries({
 			queryKey: trpc.devices.list.queryKey({ workspaceId }),
-		})
+		});
 		void queryClient.invalidateQueries({
 			queryKey: trpc.connections.list.queryKey({ workspaceId }),
-		})
+		});
 		void queryClient.invalidateQueries({
 			queryKey: trpc.annotations.list.queryKey({ workspaceId }),
-		})
+		});
 		for (const d of devices) {
 			void queryClient.invalidateQueries({
 				queryKey: trpc.interfaces.list.queryKey({ deviceId: d.id }),
-			})
+			});
 		}
-	}, [queryClient, trpc, workspaceId, devices])
+	}, [queryClient, trpc, workspaceId, devices]);
 
 	/* ── Mutations ── */
 	const addDevice = useMutation(
 		trpc.devices.create.mutationOptions({ onSuccess: invalidateAll }),
-	)
+	);
 	const moveDevice = useMutation(
 		trpc.devices.move.mutationOptions({ onSuccess: invalidateAll }),
-	)
+	);
 	const deleteDevice = useMutation(
 		trpc.devices.delete.mutationOptions({ onSuccess: invalidateAll }),
-	)
+	);
 	const updateDevice = useMutation(
 		trpc.devices.update.mutationOptions({ onSuccess: invalidateAll }),
-	)
+	);
 	const addConnection = useMutation(
 		trpc.connections.create.mutationOptions({ onSuccess: invalidateAll }),
-	)
+	);
 	const deleteConnection = useMutation(
 		trpc.connections.delete.mutationOptions({ onSuccess: invalidateAll }),
-	)
+	);
 	const upsertPortConfig = useMutation(
 		trpc.interfaces.upsert.mutationOptions({ onSuccess: invalidateAll }),
-	)
+	);
 	const createAnnotation = useMutation(
 		trpc.annotations.create.mutationOptions({ onSuccess: invalidateAll }),
-	)
+	);
 	const updateAnnotation = useMutation(
 		trpc.annotations.update.mutationOptions({ onSuccess: invalidateAll }),
-	)
+	);
 	const deleteAnnotation = useMutation(
 		trpc.annotations.delete.mutationOptions({ onSuccess: invalidateAll }),
-	)
+	);
 	const updateWorkspace = useMutation(
 		trpc.workspaces.update.mutationOptions({
 			onSuccess: () => {
 				void queryClient.invalidateQueries({
 					queryKey: trpc.workspaces.get.queryKey({ id: workspaceId }),
-				})
-				setEditingWorkspaceName(false)
+				});
+				setEditingWorkspaceName(false);
 			},
 		}),
-	)
+	);
 
 	/* ── Port click (connect flow) ── */
 	const handlePortClick = useCallback(
 		(deviceId: string, portNumber: number) => {
-			if (isPortConnected(deviceId, portNumber, connections)) return
+			if (isPortConnected(deviceId, portNumber, connections)) return;
 
 			if (!selectedPort) {
-				setSelectedPort({ deviceId, portNumber })
-				return
+				setSelectedPort({ deviceId, portNumber });
+				return;
 			}
 
 			if (
 				selectedPort.deviceId === deviceId &&
 				selectedPort.portNumber === portNumber
 			) {
-				setSelectedPort(null)
-				return
+				setSelectedPort(null);
+				return;
 			}
 
 			/* Same device? Disallow */
 			if (selectedPort.deviceId === deviceId) {
-				setSelectedPort({ deviceId, portNumber })
-				return
+				setSelectedPort({ deviceId, portNumber });
+				return;
 			}
 
 			/* Check if target port is already connected */
 			if (isPortConnected(deviceId, portNumber, connections)) {
-				setSelectedPort(null)
-				return
+				setSelectedPort(null);
+				return;
 			}
 
 			/* Auto-detect WiFi: only when at least one port is 0 (virtual WiFi interface) */
-			const devA = devices.find((d) => d.id === selectedPort.deviceId)
-			const devB = devices.find((d) => d.id === deviceId)
-			const capsA = devA ? DEVICE_CAPABILITIES[devA.deviceType as DeviceType] : null
-			const capsB = devB ? DEVICE_CAPABILITIES[devB.deviceType as DeviceType] : null
+			const devA = devices.find((d) => d.id === selectedPort.deviceId);
+			const devB = devices.find((d) => d.id === deviceId);
+			const capsA = devA
+				? DEVICE_CAPABILITIES[devA.deviceType as DeviceType]
+				: null;
+			const capsB = devB
+				? DEVICE_CAPABILITIES[devB.deviceType as DeviceType]
+				: null;
 			const isWifi =
 				(selectedPort.portNumber === 0 || portNumber === 0) &&
 				((capsA?.wifiHost && capsB?.wifiClient) ||
-				(capsB?.wifiHost && capsA?.wifiClient))
+					(capsB?.wifiHost && capsA?.wifiClient));
 
 			addConnection.mutate(
 				{
@@ -188,99 +207,133 @@ function WorkspacePage() {
 						if (!isWifi) {
 							/* Determine which interface is the DHCP server */
 							const ifaceA = portConfigs.find(
-								(pc) => pc.deviceId === selectedPort.deviceId && pc.portNumber === selectedPort.portNumber,
-							)
+								(pc) =>
+									pc.deviceId === selectedPort.deviceId &&
+									pc.portNumber === selectedPort.portNumber,
+							);
 							const ifaceB = portConfigs.find(
-								(pc) => pc.deviceId === deviceId && pc.portNumber === portNumber,
-							)
+								(pc) =>
+									pc.deviceId === deviceId && pc.portNumber === portNumber,
+							);
 
-							let dhcpServer: typeof devA = null
-							let serverPort: number | null = null
-							let clientId: string | null = null
-							let clientPort: number | null = null
+							let dhcpServer: typeof devA;
+							let serverPort: number | null = null;
+							let clientId: string | null = null;
+							let clientPort: number | null = null;
 
 							if (ifaceA?.dhcpEnabled && devA) {
-								dhcpServer = devA
-								serverPort = selectedPort.portNumber
-								clientId = deviceId
-								clientPort = portNumber
+								dhcpServer = devA;
+								serverPort = selectedPort.portNumber;
+								clientId = deviceId;
+								clientPort = portNumber;
 							} else if (ifaceB?.dhcpEnabled && devB) {
-								dhcpServer = devB
-								serverPort = portNumber
-								clientId = selectedPort.deviceId
-								clientPort = selectedPort.portNumber
+								dhcpServer = devB;
+								serverPort = portNumber;
+								clientId = selectedPort.deviceId;
+								clientPort = selectedPort.portNumber;
 							}
 
-							if (dhcpServer && clientId && clientPort !== null && serverPort !== null) {
-								const ip = getNextDhcpIp(dhcpServer, serverPort, connections, portConfigs)
+							if (
+								dhcpServer &&
+								clientId &&
+								clientPort !== null &&
+								serverPort !== null
+							) {
+								const ip = getNextDhcpIp(
+									dhcpServer,
+									serverPort,
+									connections,
+									portConfigs,
+								);
 								if (ip) {
 									upsertPortConfig.mutate({
 										deviceId: clientId,
 										portNumber: clientPort,
 										ipAddress: ip,
-									})
+									});
 								}
 							}
 						}
 
 						/* Auto-set port role when connecting to cloud/internet */
-						const cloudDev = devA?.deviceType === "cloud" ? devA : devB?.deviceType === "cloud" ? devB : null
+						const cloudDev =
+							devA?.deviceType === "cloud"
+								? devA
+								: devB?.deviceType === "cloud"
+									? devB
+									: null;
 						if (cloudDev) {
-							const otherDevId = cloudDev.id === selectedPort.deviceId ? deviceId : selectedPort.deviceId
-							const otherPort = cloudDev.id === selectedPort.deviceId ? portNumber : selectedPort.portNumber
-							const otherDev = devices.find((d) => d.id === otherDevId)
-							const otherCaps = otherDev ? DEVICE_CAPABILITIES[otherDev.deviceType as DeviceType] : null
+							const otherDevId =
+								cloudDev.id === selectedPort.deviceId
+									? deviceId
+									: selectedPort.deviceId;
+							const otherPort =
+								cloudDev.id === selectedPort.deviceId
+									? portNumber
+									: selectedPort.portNumber;
+							const otherDev = devices.find((d) => d.id === otherDevId);
+							const otherCaps = otherDev
+								? DEVICE_CAPABILITIES[otherDev.deviceType as DeviceType]
+								: null;
 							/* Only auto-assign uplink on L3 devices (router, firewall, etc.) */
 							if (otherCaps && otherCaps.layer === 3) {
 								upsertPortConfig.mutate({
 									deviceId: otherDevId,
 									portNumber: otherPort,
 									portRole: "uplink",
-								})
+								});
 							}
 						}
 					},
 				},
-			)
-			setSelectedPort(null)
+			);
+			setSelectedPort(null);
 		},
-		[selectedPort, connections, addConnection, workspaceId, devices, portConfigs, upsertPortConfig],
-	)
+		[
+			selectedPort,
+			connections,
+			addConnection,
+			workspaceId,
+			devices,
+			portConfigs,
+			upsertPortConfig,
+		],
+	);
 
 	/* ── Port config handler ── */
 	const handleUpdatePortConfig = useCallback(
 		(config: {
-			deviceId: string
-			portNumber: number
-			alias?: string | null
-			speed?: string | null
-			vlan?: number | null
-			reserved?: boolean
-			reservedLabel?: string | null
-			ipAddress?: string | null
-			macAddress?: string | null
-			portMode?: string | null
-			portRole?: string | null
-			dhcpEnabled?: boolean
-			dhcpRangeStart?: string | null
-			dhcpRangeEnd?: string | null
-			ssid?: string | null
-			wifiPassword?: string | null
-			natEnabled?: boolean
-			gateway?: string | null
+			deviceId: string;
+			portNumber: number;
+			alias?: string | null;
+			speed?: string | null;
+			vlan?: number | null;
+			reserved?: boolean;
+			reservedLabel?: string | null;
+			ipAddress?: string | null;
+			macAddress?: string | null;
+			portMode?: string | null;
+			portRole?: string | null;
+			dhcpEnabled?: boolean;
+			dhcpRangeStart?: string | null;
+			dhcpRangeEnd?: string | null;
+			ssid?: string | null;
+			wifiPassword?: string | null;
+			natEnabled?: boolean;
+			gateway?: string | null;
 		}) => {
-			upsertPortConfig.mutate(config)
+			upsertPortConfig.mutate(config);
 		},
 		[upsertPortConfig],
-	)
+	);
 
 	/* ── Disconnect handler ── */
 	const handleDisconnect = useCallback(
 		(connectionId: string) => {
-			deleteConnection.mutate({ id: connectionId })
+			deleteConnection.mutate({ id: connectionId });
 		},
 		[deleteConnection],
-	)
+	);
 
 	/* ── Auth guard ── */
 	if (!session?.user) {
@@ -288,7 +341,7 @@ function WorkspacePage() {
 			<div className="flex items-center justify-center h-full bg-(--app-bg) text-(--app-text-muted)">
 				Please sign in to access this workspace.
 			</div>
-		)
+		);
 	}
 
 	if (workspaceQuery.isLoading) {
@@ -298,17 +351,17 @@ function WorkspacePage() {
 					Loading workspace…
 				</div>
 			</div>
-		)
+		);
 	}
 
-	const workspace = workspaceQuery.data
+	const workspace = workspaceQuery.data;
 
 	if (!workspace) {
 		return (
 			<div className="flex items-center justify-center h-full bg-(--app-bg) text-red-400">
 				Workspace not found
 			</div>
-		)
+		);
 	}
 
 	return (
@@ -320,7 +373,7 @@ function WorkspacePage() {
 				selectedDeviceId={selectedDeviceId}
 				selectedPort={selectedPort}
 				onAddDevice={(name, portCount, color, deviceType) => {
-					const offset = devices.length * 30
+					const offset = devices.length * 30;
 					addDevice.mutate({
 						workspaceId,
 						name,
@@ -329,7 +382,7 @@ function WorkspacePage() {
 						deviceType: deviceType as DeviceType,
 						positionX: 100 + offset,
 						positionY: 100 + offset,
-					})
+					});
 				}}
 				onDeleteDevice={(id) => deleteDevice.mutate({ id })}
 				onUpdateDevice={(id, fields) => updateDevice.mutate({ id, ...fields })}
@@ -349,20 +402,25 @@ function WorkspacePage() {
 						{
 							onSuccess: () => {
 								/* Auto-assign DHCP IP to the client (WiFi port 0) */
-								const hostDev = devices.find((d) => d.id === hostDeviceId)
+								const hostDev = devices.find((d) => d.id === hostDeviceId);
 								if (hostDev) {
-									const ip = getNextDhcpIp(hostDev, 0, connections, portConfigs)
+									const ip = getNextDhcpIp(
+										hostDev,
+										0,
+										connections,
+										portConfigs,
+									);
 									if (ip) {
 										upsertPortConfig.mutate({
 											deviceId: clientDeviceId,
 											portNumber: 0,
 											ipAddress: ip,
-										})
+										});
 									}
 								}
 							},
 						},
-					)
+					);
 				}}
 				portConfigs={portConfigs}
 				searchQuery={searchQuery}
@@ -379,12 +437,12 @@ function WorkspacePage() {
 							<form
 								className="flex items-center gap-1"
 								onSubmit={(e) => {
-									e.preventDefault()
-									const trimmed = workspaceNameDraft.trim()
+									e.preventDefault();
+									const trimmed = workspaceNameDraft.trim();
 									if (trimmed && trimmed !== workspace.name) {
-										updateWorkspace.mutate({ id: workspaceId, name: trimmed })
+										updateWorkspace.mutate({ id: workspaceId, name: trimmed });
 									} else {
-										setEditingWorkspaceName(false)
+										setEditingWorkspaceName(false);
 									}
 								}}
 							>
@@ -394,10 +452,14 @@ function WorkspacePage() {
 									onChange={(e) => setWorkspaceNameDraft(e.target.value)}
 									className="bg-(--app-input-bg) border border-(--app-border) rounded px-1.5 py-0.5 text-sm text-(--app-text) w-40 focus:outline-none focus:ring-1 focus:ring-cyan-400"
 									onKeyDown={(e) => {
-										if (e.key === "Escape") setEditingWorkspaceName(false)
+										if (e.key === "Escape") setEditingWorkspaceName(false);
 									}}
 								/>
-								<button type="submit" className="text-green-400 hover:text-green-300 p-0.5" title="Save">
+								<button
+									type="submit"
+									className="text-green-400 hover:text-green-300 p-0.5"
+									title="Save"
+								>
 									<Check size={14} />
 								</button>
 								<button
@@ -413,14 +475,17 @@ function WorkspacePage() {
 							<span
 								className="cursor-pointer hover:underline decoration-dotted underline-offset-2 flex items-center gap-1.5 group"
 								onDoubleClick={() => {
-									setWorkspaceNameDraft(workspace.name)
-									setEditingWorkspaceName(true)
-									setTimeout(() => wsNameInputRef.current?.select(), 0)
+									setWorkspaceNameDraft(workspace.name);
+									setEditingWorkspaceName(true);
+									setTimeout(() => wsNameInputRef.current?.select(), 0);
 								}}
 								title="Double-click to rename"
 							>
 								{workspace.name}
-								<Pencil size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
+								<Pencil
+									size={11}
+									className="opacity-0 group-hover:opacity-50 transition-opacity"
+								/>
 							</span>
 						)}
 					</div>
@@ -479,7 +544,9 @@ function WorkspacePage() {
 						selectedDeviceId={selectedDeviceId}
 						onUpdatePortConfig={handleUpdatePortConfig}
 						onDisconnect={handleDisconnect}
-						onUpdateDevice={(id, fields) => updateDevice.mutate({ id, ...fields })}
+						onUpdateDevice={(id, fields) =>
+							updateDevice.mutate({ id, ...fields })
+						}
 						onDeleteDevice={(id) => deleteDevice.mutate({ id })}
 						onAddAnnotation={(ann) =>
 							createAnnotation.mutate({ workspaceId, ...ann })
@@ -487,9 +554,7 @@ function WorkspacePage() {
 						onUpdateAnnotation={(id, fields) =>
 							updateAnnotation.mutate({ id, ...fields })
 						}
-						onDeleteAnnotation={(id) =>
-							deleteAnnotation.mutate({ id })
-						}
+						onDeleteAnnotation={(id) => deleteAnnotation.mutate({ id })}
 					/>
 				) : activeTab === "connections" ? (
 					<div className="flex-1 overflow-auto bg-(--app-bg) p-4">
@@ -497,9 +562,7 @@ function WorkspacePage() {
 							connections={connections}
 							devices={devices}
 							portConfigs={portConfigs}
-							onDelete={(id) =>
-								deleteConnection.mutate({ id })
-							}
+							onDelete={(id) => deleteConnection.mutate({ id })}
 							highlightedConnectionId={highlightedConnectionId}
 							onHighlight={setHighlightedConnectionId}
 							searchQuery={searchQuery}
@@ -514,5 +577,5 @@ function WorkspacePage() {
 				)}
 			</div>
 		</div>
-	)
+	);
 }

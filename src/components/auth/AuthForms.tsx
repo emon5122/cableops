@@ -1,38 +1,38 @@
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { authClient } from "@/lib/auth-client"
-import { useRouter } from "@tanstack/react-router"
-import { Cable, LogIn, UserPlus } from "lucide-react"
-import { useState } from "react"
+import { useRouter } from "@tanstack/react-router";
+import { Cable, LogIn, UserPlus } from "lucide-react";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { authClient } from "@/lib/auth-client";
 
 export function SignInForm() {
-	const [email, setEmail] = useState("")
-	const [password, setPassword] = useState("")
-	const [error, setError] = useState<string | null>(null)
-	const [loading, setLoading] = useState(false)
-	const router = useRouter()
+	const [email, setEmail] = useState("");
+	const [password, setPassword] = useState("");
+	const [error, setError] = useState<string | null>(null);
+	const [loading, setLoading] = useState(false);
+	const router = useRouter();
 
 	const handleSubmit = async (e: React.FormEvent) => {
-		e.preventDefault()
-		setError(null)
-		setLoading(true)
+		e.preventDefault();
+		setError(null);
+		setLoading(true);
 		try {
 			const result = await authClient.signIn.email({
 				email,
 				password,
-			})
+			});
 			if (result.error) {
-				setError(result.error.message ?? "Sign in failed")
+				setError(result.error.message ?? "Sign in failed");
 			} else {
-				router.navigate({ to: "/" })
+				router.navigate({ to: "/" });
 			}
 		} catch {
-			setError("An unexpected error occurred")
+			setError("An unexpected error occurred");
 		} finally {
-			setLoading(false)
+			setLoading(false);
 		}
-	}
+	};
 
 	return (
 		<div className="min-h-screen flex items-center justify-center bg-(--app-bg) p-4">
@@ -40,9 +40,7 @@ export function SignInForm() {
 				<div className="text-center mb-8">
 					<div className="flex items-center justify-center gap-3 mb-3">
 						<Cable className="text-cyan-400" size={32} />
-						<h1 className="text-2xl font-bold text-(--app-text)">
-							CableOps
-						</h1>
+						<h1 className="text-2xl font-bold text-(--app-text)">CableOps</h1>
 					</div>
 					<p className="text-(--app-text-muted) text-sm">
 						Sign in to manage your cable topologies
@@ -72,9 +70,7 @@ export function SignInForm() {
 					</div>
 
 					<div>
-						<Label className="text-xs text-(--app-text-muted)">
-							Password
-						</Label>
+						<Label className="text-xs text-(--app-text-muted)">Password</Label>
 						<Input
 							type="password"
 							value={password}
@@ -96,48 +92,45 @@ export function SignInForm() {
 
 					<p className="text-center text-xs text-(--app-text-muted)">
 						Don't have an account?{" "}
-						<a
-							href="/auth/sign-up"
-							className="text-cyan-400 hover:underline"
-						>
+						<a href="/auth/sign-up" className="text-cyan-400 hover:underline">
 							Sign up
 						</a>
 					</p>
 				</form>
 			</div>
 		</div>
-	)
+	);
 }
 
 export function SignUpForm() {
-	const [name, setName] = useState("")
-	const [email, setEmail] = useState("")
-	const [password, setPassword] = useState("")
-	const [error, setError] = useState<string | null>(null)
-	const [loading, setLoading] = useState(false)
-	const router = useRouter()
+	const [name, setName] = useState("");
+	const [email, setEmail] = useState("");
+	const [password, setPassword] = useState("");
+	const [error, setError] = useState<string | null>(null);
+	const [loading, setLoading] = useState(false);
+	const router = useRouter();
 
 	const handleSubmit = async (e: React.FormEvent) => {
-		e.preventDefault()
-		setError(null)
-		setLoading(true)
+		e.preventDefault();
+		setError(null);
+		setLoading(true);
 		try {
 			const result = await authClient.signUp.email({
 				name,
 				email,
 				password,
-			})
+			});
 			if (result.error) {
-				setError(result.error.message ?? "Sign up failed")
+				setError(result.error.message ?? "Sign up failed");
 			} else {
-				router.navigate({ to: "/" })
+				router.navigate({ to: "/" });
 			}
 		} catch {
-			setError("An unexpected error occurred")
+			setError("An unexpected error occurred");
 		} finally {
-			setLoading(false)
+			setLoading(false);
 		}
-	}
+	};
 
 	return (
 		<div className="min-h-screen flex items-center justify-center bg-(--app-bg) p-4">
@@ -145,9 +138,7 @@ export function SignUpForm() {
 				<div className="text-center mb-8">
 					<div className="flex items-center justify-center gap-3 mb-3">
 						<Cable className="text-cyan-400" size={32} />
-						<h1 className="text-2xl font-bold text-(--app-text)">
-							CableOps
-						</h1>
+						<h1 className="text-2xl font-bold text-(--app-text)">CableOps</h1>
 					</div>
 					<p className="text-(--app-text-muted) text-sm">
 						Create your account to get started
@@ -189,9 +180,7 @@ export function SignUpForm() {
 					</div>
 
 					<div>
-						<Label className="text-xs text-(--app-text-muted)">
-							Password
-						</Label>
+						<Label className="text-xs text-(--app-text-muted)">Password</Label>
 						<Input
 							type="password"
 							value={password}
@@ -214,15 +203,12 @@ export function SignUpForm() {
 
 					<p className="text-center text-xs text-(--app-text-muted)">
 						Already have an account?{" "}
-						<a
-							href="/auth/sign-in"
-							className="text-cyan-400 hover:underline"
-						>
+						<a href="/auth/sign-in" className="text-cyan-400 hover:underline">
 							Sign in
 						</a>
 					</p>
 				</form>
 			</div>
 		</div>
-	)
+	);
 }

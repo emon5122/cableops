@@ -1,10 +1,10 @@
 import {
-    boolean,
-    integer,
-    pgTable,
-    text,
-    timestamp,
-} from "drizzle-orm/pg-core"
+	boolean,
+	integer,
+	pgTable,
+	text,
+	timestamp,
+} from "drizzle-orm/pg-core";
 
 /* ═══════════════════════════════════════════════════
    Better-Auth tables (user, session, account, verification)
@@ -18,7 +18,7 @@ export const user = pgTable("user", {
 	image: text("image"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
-})
+});
 
 export const session = pgTable("session", {
 	id: text("id").primaryKey(),
@@ -31,7 +31,7 @@ export const session = pgTable("session", {
 	userId: text("user_id")
 		.notNull()
 		.references(() => user.id, { onDelete: "cascade" }),
-})
+});
 
 export const account = pgTable("account", {
 	id: text("id").primaryKey(),
@@ -49,7 +49,7 @@ export const account = pgTable("account", {
 	password: text("password"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
-})
+});
 
 export const verification = pgTable("verification", {
 	id: text("id").primaryKey(),
@@ -58,7 +58,7 @@ export const verification = pgTable("verification", {
 	expiresAt: timestamp("expires_at").notNull(),
 	createdAt: timestamp("created_at").defaultNow(),
 	updatedAt: timestamp("updated_at").defaultNow(),
-})
+});
 
 /* ═══════════════════════════════════════════════════
    CableOps tables
@@ -71,7 +71,7 @@ export const workspaces = pgTable("workspaces", {
 		.notNull()
 		.references(() => user.id, { onDelete: "cascade" }),
 	createdAt: timestamp("created_at").defaultNow(),
-})
+});
 
 export const devices = pgTable("devices", {
 	id: text("id").primaryKey(),
@@ -88,7 +88,7 @@ export const devices = pgTable("devices", {
 	/** Can this device forward packets between interfaces? (routers: always, PCs: optional) */
 	ipForwarding: boolean("ip_forwarding").default(false),
 	createdAt: timestamp("created_at").defaultNow(),
-})
+});
 
 export const connections = pgTable("connections", {
 	id: text("id").primaryKey(),
@@ -107,7 +107,7 @@ export const connections = pgTable("connections", {
 	/** "wired" | "wifi" — determines visual representation */
 	connectionType: text("connection_type").default("wired"),
 	createdAt: timestamp("created_at").defaultNow(),
-})
+});
 
 /**
  * Network interfaces — per-port configuration including IP, DHCP, WiFi, NAT.
@@ -144,7 +144,7 @@ export const interfaces = pgTable("interfaces", {
 	/** Default gateway IP reachable via this interface */
 	gateway: text("gateway"),
 	createdAt: timestamp("created_at").defaultNow(),
-})
+});
 
 /**
  * Static routes — per-device routing table entries.
@@ -163,7 +163,7 @@ export const routes = pgTable("routes", {
 	/** Route metric / priority (lower = preferred) */
 	metric: integer("metric").notNull().default(100),
 	createdAt: timestamp("created_at").defaultNow(),
-})
+});
 
 /**
  * Canvas annotations — barriers, rooms, walls, labels drawn
@@ -183,4 +183,4 @@ export const annotations = pgTable("annotations", {
 	height: integer("height").notNull().default(150),
 	color: text("color").notNull().default("#334155"),
 	createdAt: timestamp("created_at").defaultNow(),
-})
+});

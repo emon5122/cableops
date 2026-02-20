@@ -44,7 +44,7 @@ Design, visualize, and document your physical network infrastructure with an int
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/cableops.git
+git clone https://github.com/emon5122/cableops.git
 cd cableops
 
 # Install dependencies
@@ -81,7 +81,6 @@ The app will be available at [http://localhost:3000](http://localhost:3000).
 | `pnpm dev` | Start development server on port 3000 |
 | `pnpm build` | Production build |
 | `pnpm preview` | Preview production build |
-| `pnpm test` | Run tests with Vitest |
 | `pnpm lint` | Lint with Biome |
 | `pnpm format` | Format with Biome |
 | `pnpm check` | Lint + format check |

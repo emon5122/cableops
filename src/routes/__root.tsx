@@ -1,21 +1,19 @@
+import type { QueryClient } from "@tanstack/react-query";
 import {
-    HeadContent,
-    Scripts,
-    createRootRouteWithContext,
-} from "@tanstack/react-router"
-import type { ReactNode } from "react"
-
-import Header from "../components/Header"
-import TanStackQueryProvider from "../integrations/tanstack-query/root-provider"
-import appCss from "../styles.css?url"
-
-import type { TRPCRouter } from "@/integrations/trpc/router"
-import type { QueryClient } from "@tanstack/react-query"
-import type { TRPCOptionsProxy } from "@trpc/tanstack-react-query"
+	createRootRouteWithContext,
+	HeadContent,
+	Scripts,
+} from "@tanstack/react-router";
+import type { TRPCOptionsProxy } from "@trpc/tanstack-react-query";
+import type { ReactNode } from "react";
+import type { TRPCRouter } from "@/integrations/trpc/router";
+import Header from "../components/Header";
+import TanStackQueryProvider from "../integrations/tanstack-query/root-provider";
+import appCss from "../styles.css?url";
 
 interface MyRouterContext {
-	queryClient: QueryClient
-	trpc: TRPCOptionsProxy<TRPCRouter>
+	queryClient: QueryClient;
+	trpc: TRPCOptionsProxy<TRPCRouter>;
 }
 
 export const Route = createRootRouteWithContext<MyRouterContext>()({
@@ -31,7 +29,7 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 		links: [{ rel: "stylesheet", href: appCss }],
 	}),
 	shellComponent: RootDocument,
-})
+});
 
 function RootDocument({ children }: { children: ReactNode }) {
 	return (
@@ -48,13 +46,11 @@ function RootDocument({ children }: { children: ReactNode }) {
 				<TanStackQueryProvider>
 					<div className="flex flex-col h-screen">
 						<Header />
-						<main className="flex-1 overflow-hidden">
-							{children}
-						</main>
+						<main className="flex-1 overflow-hidden">{children}</main>
 					</div>
 				</TanStackQueryProvider>
 				<Scripts />
 			</body>
 		</html>
-	)
+	);
 }
