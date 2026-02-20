@@ -1050,26 +1050,82 @@ export default function TopologyCanvas({
 									})}
 								</div>
 							) : (
-								<div
-									className="p-3 flex items-center justify-center gap-1.5 text-xs"
-									style={{ color: "var(--app-text-dim)" }}
-								>
-									<svg
-										width="12"
-										height="12"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										strokeWidth="2"
-										strokeLinecap="round"
-										strokeLinejoin="round"
-									>
-										<path d="M5 12.55a11 11 0 0 1 14.08 0" />
-										<path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
-										<circle cx="12" cy="20" r="1" fill="currentColor" />
-									</svg>
-									<span>WiFi</span>
-								</div>
+								(() => {
+									const pNum = 0;
+									const wifiConnected = connections.some(
+										(c) =>
+											(c.deviceAId === device.id && c.portA === 0) ||
+											(c.deviceBId === device.id && c.portB === 0),
+									);
+									const isSel =
+										selectedPort?.deviceId === device.id &&
+										selectedPort.portNumber === pNum;
+									const pc = getPortConfig(device.id, pNum);
+									const hasConfig = !!(
+										pc &&
+										(pc.ipAddress ||
+											pc.alias ||
+											pc.ssid ||
+											pc.gateway ||
+											pc.speed)
+									);
+
+									return (
+										<div className="p-2.5 flex items-center justify-center">
+											<button
+												type="button"
+												className={`h-8 px-3 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 relative ${
+													isSel
+														? "ring-2 ring-white ring-offset-1 ring-offset-(--app-surface)"
+														: ""
+												}`}
+												style={{
+													backgroundColor: wifiConnected
+														? "#0ea5e9"
+														: "var(--app-port-empty)",
+													color: wifiConnected ? "#03131f" : "var(--app-text-dim)",
+													border: wifiConnected
+														? "1px solid #0284c7"
+														: "1px solid var(--app-port-border)",
+												}}
+												onClick={(e) => {
+													e.stopPropagation();
+													onPortClick(device.id, pNum);
+												}}
+												onContextMenu={(e) => {
+													e.preventDefault();
+													e.stopPropagation();
+													setContextMenu({
+														deviceId: device.id,
+														portNumber: pNum,
+														x: e.clientX,
+														y: e.clientY,
+													});
+												}}
+												title={`WiFi interface${pc?.ipAddress ? ` ${pc.ipAddress}` : ""}${pc?.ssid ? ` SSID ${pc.ssid}` : ""}`}
+											>
+												<svg
+													width="12"
+													height="12"
+													viewBox="0 0 24 24"
+													fill="none"
+													stroke="currentColor"
+													strokeWidth="2"
+													strokeLinecap="round"
+													strokeLinejoin="round"
+												>
+													<path d="M5 12.55a11 11 0 0 1 14.08 0" />
+													<path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+													<circle cx="12" cy="20" r="1" fill="currentColor" />
+												</svg>
+												<span>WiFi P0</span>
+												{hasConfig && (
+													<div className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-cyan-400" />
+												)}
+											</button>
+										</div>
+									);
+								})()
 							)}
 						</div>
 					</motion.div>
@@ -1282,6 +1338,27 @@ export default function TopologyCanvas({
 									<circle r="1.8" fill="#a78bfa" opacity="0.75">
 										<animateMotion
 											dur="2.6s"
+											repeatCount="indefinite"
+											path={path}
+											keyPoints="1;0"
+											keyTimes="0;1"
+											calcMode="linear"
+										/>
+									</circle>
+								</>
+							)}
+							{isFlowActive && isWifi && (
+								<>
+									<circle r="2.3" fill="#38bdf8" opacity="0.95">
+										<animateMotion
+											dur="1.9s"
+											repeatCount="indefinite"
+											path={path}
+										/>
+									</circle>
+									<circle r="2.0" fill="#22d3ee" opacity="0.82">
+										<animateMotion
+											dur="2.3s"
 											repeatCount="indefinite"
 											path={path}
 											keyPoints="1;0"

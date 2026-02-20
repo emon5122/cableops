@@ -314,10 +314,25 @@ function WorkspacePage() {
 			const capsB = devB
 				? DEVICE_CAPABILITIES[devB.deviceType as DeviceType]
 				: null;
+			const selectedIsVirtualWifi = selectedPort.portNumber === 0;
+			const targetIsVirtualWifi = portNumber === 0;
+
+			/* Never allow WiFi virtual interface to connect directly to physical ports */
+			if (selectedIsVirtualWifi !== targetIsVirtualWifi) {
+				setSelectedPort({ deviceId, portNumber });
+				return;
+			}
+
 			const isWifi =
-				(selectedPort.portNumber === 0 || portNumber === 0) &&
+				(selectedIsVirtualWifi && targetIsVirtualWifi) &&
 				((capsA?.wifiHost && capsB?.wifiClient) ||
 					(capsB?.wifiHost && capsA?.wifiClient));
+
+			/* Virtual WiFi ports must form a valid host<->client WiFi connection */
+			if (selectedIsVirtualWifi && targetIsVirtualWifi && !isWifi) {
+				setSelectedPort({ deviceId, portNumber });
+				return;
+			}
 
 			addConnection.mutate(
 				{

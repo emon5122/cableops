@@ -719,6 +719,7 @@ export interface NetworkIssue {
 		| "unreachable_segment"
 		| "no_ip"
 		| "no_dhcp_match"
+		| "no_dhcp_server"
 		| "needs_forwarding"
 		| "multiple_gateways"
 		| "dhcp_collision"
@@ -1468,6 +1469,74 @@ export function analyzeNetwork(
 				});
 			}
 		}
+	}
+
+	/* ── 6b. WiFi client connected but no reachable DHCP server ── */
+	const warnedWifiClients = new Set<string>();
+	for (const conn of connections) {
+		const devA = devices.find((d) => d.id === conn.deviceAId);
+		const devB = devices.find((d) => d.id === conn.deviceBId);
+		if (!devA || !devB) continue;
+
+		const capsA = DEVICE_CAPABILITIES[devA.deviceType as DeviceType];
+		const capsB = DEVICE_CAPABILITIES[devB.deviceType as DeviceType];
+		const isWifiLink =
+			conn.connectionType === "wifi" ||
+			(conn.portA === 0 &&
+				conn.portB === 0 &&
+				((capsA?.wifiHost && capsB?.wifiClient) ||
+					(capsB?.wifiHost && capsA?.wifiClient)));
+		if (!isWifiLink) continue;
+
+		let clientDevice = devA;
+		let clientPort = conn.portA;
+		let hostDevice = devB;
+		if (capsA?.wifiHost && capsB?.wifiClient) {
+			clientDevice = devB;
+			clientPort = conn.portB;
+			hostDevice = devA;
+		}
+
+		const clientKey = `${clientDevice.id}:${clientPort}`;
+		if (warnedWifiClients.has(clientKey)) continue;
+
+		const clientIface = portConfigs.find(
+			(pc) =>
+				pc.deviceId === clientDevice.id &&
+				pc.portNumber === clientPort,
+		);
+		if (clientIface?.ipAddress) continue;
+
+		const seg =
+			portToSegment.get(clientKey) ??
+			getNetworkSegment(
+				clientDevice.id,
+				clientPort,
+				connections,
+				devices,
+				portConfigs,
+			);
+
+		const hasReachableDhcp = seg.ports.some((sp) => {
+			const iface = portConfigs.find(
+				(pc) => pc.deviceId === sp.deviceId && pc.portNumber === sp.portNumber,
+			);
+			return !!(
+				iface?.dhcpEnabled &&
+				iface.dhcpRangeStart &&
+				iface.dhcpRangeEnd
+			);
+		});
+		if (hasReachableDhcp) continue;
+
+		issues.push({
+			severity: "warning",
+			deviceId: clientDevice.id,
+			portNumber: clientPort,
+			message: `${clientDevice.name} is connected to WiFi ${hostDevice.name}, but no reachable DHCP server exists in segment ${seg.subnet ?? seg.id}`,
+			type: "no_dhcp_server",
+		});
+		warnedWifiClients.add(clientKey);
 	}
 
 	/* ── 7. NAT sanity checks ── */
