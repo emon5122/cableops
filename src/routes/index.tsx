@@ -4,6 +4,7 @@ import { useTRPC } from "@/integrations/trpc/react";
 import { authClient } from "@/lib/auth-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { motion } from "framer-motion";
 import { ArrowRight, Cable, Folder, Network, Plus, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 
@@ -87,9 +88,19 @@ function Dashboard() {
 	if (!authLoading && !session?.user) {
 		return (
 			<div className="min-h-full flex items-center justify-center bg-(--app-bg) p-6">
-				<div className="max-w-lg text-center">
+				<motion.div
+					className="max-w-lg text-center"
+					initial={{ opacity: 0, y: 8 }}
+					animate={{ opacity: 1, y: 0 }}
+					transition={{ duration: 0.28, ease: "easeOut" }}
+				>
 					<div className="flex items-center justify-center gap-3 mb-6">
-						<Cable className="text-cyan-400" size={48} />
+						<motion.div
+							animate={{ rotate: [0, -3, 3, 0] }}
+							transition={{ duration: 1.8, repeat: Number.POSITIVE_INFINITY, repeatDelay: 4 }}
+						>
+							<Cable className="text-cyan-400" size={48} />
+						</motion.div>
 						<h1 className="text-4xl font-black text-(--app-text)">CableOps</h1>
 					</div>
 					<p className="text-(--app-text-muted) text-lg mb-2">
@@ -119,22 +130,25 @@ function Dashboard() {
 					{/* Feature cards */}
 					<div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-12">
 						<FeatureCard
+							index={0}
 							icon={<Network size={24} />}
 							title="Visual Topology"
 							desc="Drag-and-drop network devices on an interactive canvas"
 						/>
 						<FeatureCard
+							index={1}
 							icon={<Cable size={24} />}
 							title="Port Management"
 							desc="Connect ports with click-to-link, track aliases & VLANs"
 						/>
 						<FeatureCard
+							index={2}
 							icon={<Folder size={24} />}
 							title="Workspaces"
 							desc="Organize projects into separate workspaces"
 						/>
 					</div>
-				</div>
+				</motion.div>
 			</div>
 		);
 	}
@@ -225,7 +239,12 @@ function Dashboard() {
 				)}
 
 				{workspaces.length === 0 && !workspacesQuery.isLoading && (
-					<div className="text-center py-16">
+					<motion.div
+						className="text-center py-16"
+						initial={{ opacity: 0, y: 8 }}
+						animate={{ opacity: 1, y: 0 }}
+						transition={{ duration: 0.24 }}
+					>
 						<Network
 							size={48}
 							className="mx-auto text-(--app-text-muted) opacity-30 mb-4"
@@ -233,14 +252,19 @@ function Dashboard() {
 						<p className="text-(--app-text-muted)">
 							No workspaces yet. Create one to get started!
 						</p>
-					</div>
+					</motion.div>
 				)}
 
 				<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-					{workspaces.map((ws) => (
-						<div
+					{workspaces.map((ws, index) => (
+						<motion.div
 							key={ws.id}
 							className="bg-(--app-surface) border border-(--app-border) rounded-xl p-4 hover:border-cyan-500/30 transition-all group"
+							initial={{ opacity: 0, y: 8 }}
+							animate={{ opacity: 1, y: 0 }}
+							transition={{ duration: 0.2, delay: Math.min(index, 8) * 0.03 }}
+							whileHover={{ y: -2, scale: 1.01 }}
+							whileTap={{ scale: 0.995 }}
 						>
 							<div className="flex items-start justify-between mb-3">
 								<div className="flex items-center gap-2">
@@ -271,7 +295,7 @@ function Dashboard() {
 							>
 								Open workspace <ArrowRight size={12} />
 							</Link>
-						</div>
+						</motion.div>
 					))}
 				</div>
 			</div>
@@ -283,16 +307,24 @@ function FeatureCard({
 	icon,
 	title,
 	desc,
+	index = 0,
 }: {
 	icon: React.ReactNode;
 	title: string;
 	desc: string;
+	index?: number;
 }) {
 	return (
-		<div className="bg-(--app-surface) border border-(--app-border) rounded-xl p-5 text-left">
+		<motion.div
+			className="bg-(--app-surface) border border-(--app-border) rounded-xl p-5 text-left"
+			initial={{ opacity: 0, y: 6 }}
+			animate={{ opacity: 1, y: 0 }}
+			transition={{ duration: 0.22, delay: index * 0.04 }}
+			whileHover={{ y: -2 }}
+		>
 			<div className="text-cyan-400 mb-3">{icon}</div>
 			<h3 className="text-sm font-bold text-(--app-text) mb-1">{title}</h3>
 			<p className="text-xs text-(--app-text-muted) leading-relaxed">{desc}</p>
-		</div>
+		</motion.div>
 	);
 }

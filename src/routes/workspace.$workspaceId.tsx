@@ -17,6 +17,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
+import { AnimatePresence, motion } from "framer-motion";
 import {
 	Cable,
 	Check,
@@ -598,7 +599,7 @@ function WorkspacePage() {
 							</span>
 						)}
 					</div>
-					<button
+					<motion.button
 						type="button"
 						className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 ${
 							activeTab === "topology"
@@ -606,10 +607,11 @@ function WorkspacePage() {
 								: "text-(--app-text-muted) hover:text-white"
 						}`}
 						onClick={() => setActiveTab("topology")}
+						whileTap={{ scale: 0.96 }}
 					>
 						<Network size={12} /> Topology
-					</button>
-					<button
+					</motion.button>
+					<motion.button
 						type="button"
 						className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 ${
 							activeTab === "connections"
@@ -617,10 +619,11 @@ function WorkspacePage() {
 								: "text-(--app-text-muted) hover:text-white"
 						}`}
 						onClick={() => setActiveTab("connections")}
+						whileTap={{ scale: 0.96 }}
 					>
 						<Table2 size={12} /> Connections ({connections.length})
-					</button>
-					<button
+					</motion.button>
+					<motion.button
 						type="button"
 						className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 ${
 							activeTab === "insights"
@@ -628,9 +631,10 @@ function WorkspacePage() {
 								: "text-(--app-text-muted) hover:text-white"
 						}`}
 						onClick={() => setActiveTab("insights")}
+						whileTap={{ scale: 0.96 }}
 					>
 						<Lightbulb size={12} /> Insights
-					</button>
+					</motion.button>
 
 					<div className="ml-auto flex items-center gap-1.5">
 						<button
@@ -675,57 +679,68 @@ function WorkspacePage() {
 				</div>
 
 				{/* Content */}
-				{activeTab === "topology" ? (
-					<TopologyCanvas
-						devices={devices}
-						connections={connections}
-						portConfigs={portConfigs}
-						annotations={annotations}
-						selectedPort={selectedPort}
-						onPortClick={handlePortClick}
-						onDeviceMove={(id, x, y) =>
-							moveDevice.mutate({
-								id,
-								positionX: x,
-								positionY: y,
-							})
-						}
-						onDeviceSelect={setSelectedDeviceId}
-						selectedDeviceId={selectedDeviceId}
-						onUpdatePortConfig={handleUpdatePortConfig}
-						onDisconnect={handleDisconnect}
-						onUpdateDevice={(id, fields) =>
-							updateDevice.mutate({ id, ...fields })
-						}
-						onDeleteDevice={(id) => deleteDevice.mutate({ id })}
-						onAddAnnotation={(ann) =>
-							createAnnotation.mutate({ workspaceId, ...ann })
-						}
-						onUpdateAnnotation={(id, fields) =>
-							updateAnnotation.mutate({ id, ...fields })
-						}
-						onDeleteAnnotation={(id) => deleteAnnotation.mutate({ id })}
-					/>
-				) : activeTab === "connections" ? (
-					<div className="flex-1 overflow-auto bg-(--app-bg) p-4">
-						<ConnectionsTable
-							connections={connections}
-							devices={devices}
-							portConfigs={portConfigs}
-							onDelete={(id) => deleteConnection.mutate({ id })}
-							highlightedConnectionId={highlightedConnectionId}
-							onHighlight={setHighlightedConnectionId}
-							searchQuery={searchQuery}
-						/>
-					</div>
-				) : (
-					<NetworkInsights
-						devices={devices}
-						connections={connections}
-						portConfigs={portConfigs}
-						routes={routes}
-					/>
-				)}
+				<AnimatePresence mode="wait" initial={false}>
+					<motion.div
+						key={activeTab}
+						className="flex-1 min-h-0"
+						initial={{ opacity: 0, y: 4 }}
+						animate={{ opacity: 1, y: 0 }}
+						exit={{ opacity: 0, y: -4 }}
+						transition={{ duration: 0.16, ease: "easeOut" }}
+					>
+						{activeTab === "topology" ? (
+							<TopologyCanvas
+								devices={devices}
+								connections={connections}
+								portConfigs={portConfigs}
+								annotations={annotations}
+								selectedPort={selectedPort}
+								onPortClick={handlePortClick}
+								onDeviceMove={(id, x, y) =>
+									moveDevice.mutate({
+										id,
+										positionX: x,
+										positionY: y,
+									})
+								}
+								onDeviceSelect={setSelectedDeviceId}
+								selectedDeviceId={selectedDeviceId}
+								onUpdatePortConfig={handleUpdatePortConfig}
+								onDisconnect={handleDisconnect}
+								onUpdateDevice={(id, fields) =>
+									updateDevice.mutate({ id, ...fields })
+								}
+								onDeleteDevice={(id) => deleteDevice.mutate({ id })}
+								onAddAnnotation={(ann) =>
+									createAnnotation.mutate({ workspaceId, ...ann })
+								}
+								onUpdateAnnotation={(id, fields) =>
+									updateAnnotation.mutate({ id, ...fields })
+								}
+								onDeleteAnnotation={(id) => deleteAnnotation.mutate({ id })}
+							/>
+						) : activeTab === "connections" ? (
+							<div className="flex-1 h-full overflow-auto bg-(--app-bg) p-4">
+								<ConnectionsTable
+									connections={connections}
+									devices={devices}
+									portConfigs={portConfigs}
+									onDelete={(id) => deleteConnection.mutate({ id })}
+									highlightedConnectionId={highlightedConnectionId}
+									onHighlight={setHighlightedConnectionId}
+									searchQuery={searchQuery}
+								/>
+							</div>
+						) : (
+							<NetworkInsights
+								devices={devices}
+								connections={connections}
+								portConfigs={portConfigs}
+								routes={routes}
+							/>
+						)}
+					</motion.div>
+				</AnimatePresence>
 			</div>
 		</div>
 	);

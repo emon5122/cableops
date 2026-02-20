@@ -19,6 +19,7 @@ import {
 	PORT_SIZE,
 	type PortSelection,
 } from "@/lib/topology-types";
+import { motion } from "framer-motion";
 import { useCallback, useMemo, useRef, useState } from "react";
 
 interface ContextMenuState {
@@ -670,7 +671,7 @@ export default function TopologyCanvas({
 				const textColor = luminance(device.color) > 0.5 ? "#000" : "#fff";
 
 				return (
-					<div
+					<motion.div
 						key={device.id}
 						className="absolute select-none"
 						style={{
@@ -680,6 +681,10 @@ export default function TopologyCanvas({
 							height: nodeHeight,
 							zIndex: drag.deviceId === device.id ? 30 : 10,
 						}}
+						initial={{ opacity: 0, scale: 0.98 }}
+						animate={{ opacity: 1, scale: 1 }}
+						whileHover={{ y: -1 }}
+						transition={{ duration: 0.15 }}
 					>
 						<div
 							className={`rounded-xl border-2 shadow-lg transition-shadow ${
@@ -900,7 +905,7 @@ export default function TopologyCanvas({
 								</div>
 							)}
 						</div>
-					</div>
+					</motion.div>
 				);
 			})}
 
@@ -1226,7 +1231,7 @@ export default function TopologyCanvas({
 							onAddAnnotation({
 								x: canvasMenu.canvasX,
 								y: canvasMenu.canvasY,
-								kind: "rect",
+								kind: "label",
 							});
 							setCanvasMenu(null);
 						}}
@@ -1263,9 +1268,12 @@ export default function TopologyCanvas({
 
 			{/* Empty state */}
 			{devices.length === 0 && (
-				<div
+				<motion.div
 					className="absolute inset-0 flex items-center justify-center"
 					style={{ zIndex: 5 }}
+					initial={{ opacity: 0 }}
+					animate={{ opacity: 1 }}
+					transition={{ duration: 0.2 }}
 				>
 					<div className="text-center text-(--app-text-muted)">
 						<svg
@@ -1286,7 +1294,7 @@ export default function TopologyCanvas({
 							Add a device from the sidebar to get started
 						</p>
 					</div>
-				</div>
+				</motion.div>
 			)}
 		</div>
 	);
