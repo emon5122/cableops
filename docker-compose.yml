@@ -1,4 +1,18 @@
 services:
+  app:
+    build: .
+    container_name: cableops-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://username:password@db:5432/mydb
+      BETTER_AUTH_URL: http://localhost:3000
+      BETTER_AUTH_SECRET: 73730e0a96da4726a07de7d898b16e5d5831e654c264cdf3fdbb1300c4ad53ed
+
   db:
     image: postgres:17-alpine
     container_name: mydb-postgres
