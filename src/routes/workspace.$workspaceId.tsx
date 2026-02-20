@@ -163,26 +163,87 @@ function WorkspacePage() {
 				return
 			}
 
-			/* Auto-detect WiFi: if one device is wifiHost and other is wifiClient */
+			/* Auto-detect WiFi: only when at least one port is 0 (virtual WiFi interface) */
 			const devA = devices.find((d) => d.id === selectedPort.deviceId)
 			const devB = devices.find((d) => d.id === deviceId)
 			const capsA = devA ? DEVICE_CAPABILITIES[devA.deviceType as DeviceType] : null
 			const capsB = devB ? DEVICE_CAPABILITIES[devB.deviceType as DeviceType] : null
 			const isWifi =
-				(capsA?.wifiHost && capsB?.wifiClient) ||
-				(capsB?.wifiHost && capsA?.wifiClient)
+				(selectedPort.portNumber === 0 || portNumber === 0) &&
+				((capsA?.wifiHost && capsB?.wifiClient) ||
+				(capsB?.wifiHost && capsA?.wifiClient))
 
-			addConnection.mutate({
-				workspaceId,
-				deviceAId: selectedPort.deviceId,
-				portA: selectedPort.portNumber,
-				deviceBId: deviceId,
-				portB: portNumber,
-				connectionType: isWifi ? "wifi" : "wired",
-			})
+			addConnection.mutate(
+				{
+					workspaceId,
+					deviceAId: selectedPort.deviceId,
+					portA: selectedPort.portNumber,
+					deviceBId: deviceId,
+					portB: portNumber,
+					connectionType: isWifi ? "wifi" : "wired",
+				},
+				{
+					onSuccess: () => {
+						/* Auto-assign DHCP IP to the client on wired connections */
+						if (!isWifi) {
+							/* Determine which device is the DHCP server and which is the client */
+							let dhcpServer: typeof devA = null
+							let serverPort: number | null = null
+							let clientId: string | null = null
+							let clientPort: number | null = null
+
+							if (devA?.dhcpEnabled) {
+								dhcpServer = devA
+								serverPort = selectedPort.portNumber
+								clientId = deviceId
+								clientPort = portNumber
+							} else if (devB?.dhcpEnabled) {
+								dhcpServer = devB
+								serverPort = portNumber
+								clientId = selectedPort.deviceId
+								clientPort = selectedPort.portNumber
+							}
+
+							if (dhcpServer && clientId && clientPort !== null && serverPort !== null) {
+								/* Get the DHCP server's port IP to check subnet match */
+								const serverPortConfig = portConfigs.find(
+									(pc) => pc.deviceId === dhcpServer!.id && pc.portNumber === serverPort,
+								)
+								const gatewayPortIp = serverPortConfig?.ipAddress ?? null
+
+								const ip = getNextDhcpIp(dhcpServer, connections, devices, portConfigs, gatewayPortIp)
+								if (ip) {
+									upsertPortConfig.mutate({
+										deviceId: clientId,
+										portNumber: clientPort,
+										ipAddress: ip,
+									})
+								}
+							}
+						}
+
+						/* Auto-set port role when connecting to cloud/internet */
+						const cloudDev = devA?.deviceType === "cloud" ? devA : devB?.deviceType === "cloud" ? devB : null
+						if (cloudDev) {
+							const otherDevId = cloudDev.id === selectedPort.deviceId ? deviceId : selectedPort.deviceId
+							const otherPort = cloudDev.id === selectedPort.deviceId ? portNumber : selectedPort.portNumber
+							const otherDev = devices.find((d) => d.id === otherDevId)
+							const otherCaps = otherDev ? DEVICE_CAPABILITIES[otherDev.deviceType as DeviceType] : null
+							/* Only auto-assign uplink on L3 devices (router, firewall, etc.) */
+							if (otherCaps && otherCaps.layer === "L3") {
+								upsertPortConfig.mutate({
+									deviceId: otherDevId,
+									portNumber: otherPort,
+									portRole: "uplink",
+								})
+							}
+						}
+					},
+				},
+			)
 			setSelectedPort(null)
 		},
-		[selectedPort, connections, addConnection, workspaceId],
+		[selectedPort, connections, addConnection, workspaceId, devices, portConfigs, upsertPortConfig],
 	)
 
 	/* ── Port config handler ── */

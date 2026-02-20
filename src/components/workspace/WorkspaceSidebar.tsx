@@ -420,7 +420,8 @@ export default function WorkspaceSidebar({
 											if (caps.wifiClient) {
 												const wifiHosts = devices.filter((d) => {
 													const dCaps = DEVICE_CAPABILITIES[d.deviceType as DeviceType]
-													return dCaps?.wifiHost && d.id !== device.id
+													/* Only show hosts that have wifiHost capability AND have an SSID configured */
+													return dCaps?.wifiHost && d.id !== device.id && d.ssid
 												})
 												/* Already connected to a WiFi host? */
 												const connectedHostIds = new Set(
@@ -860,8 +861,11 @@ function DeviceNetworkSettings({
 						{caps.dhcpCapable && (
 							<span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-400/10 text-cyan-400">DHCP</span>
 						)}
-						{caps.wifiHost && (
+						{caps.wifiHost && device.ssid && (
 							<span className="text-[9px] px-1.5 py-0.5 rounded bg-sky-400/10 text-sky-400">WiFi Host</span>
+						)}
+						{caps.wifiHost && !device.ssid && (
+							<span className="text-[9px] px-1.5 py-0.5 rounded bg-sky-400/10 text-sky-400/40">WiFi Capable</span>
 						)}
 						{caps.wifiClient && (
 							<span className="text-[9px] px-1.5 py-0.5 rounded bg-sky-400/10 text-sky-300">WiFi</span>

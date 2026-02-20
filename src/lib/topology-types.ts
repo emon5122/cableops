@@ -462,6 +462,7 @@ export interface PortSelection {
 
 export const DEVICE_NODE_WIDTH = 280
 export const DEVICE_NODE_HEADER_HEIGHT = 48
+export const INFO_STRIP_HEIGHT = 22
 export const PORT_SIZE = 28
 export const PORT_GAP = 4
 export const PORTS_PER_ROW = 8
@@ -514,16 +515,16 @@ export function getPortPosition(
 
 	return {
 		x: startX + col * spacing,
-		y: DEVICE_NODE_HEADER_HEIGHT + 14 + row * spacing + PORT_SIZE / 2,
+		y: DEVICE_NODE_HEADER_HEIGHT + INFO_STRIP_HEIGHT + 14 + row * spacing + PORT_SIZE / 2,
 	}
 }
 
 export function getDeviceNodeHeight(portCount: number): number {
-	if (portCount <= 0) return DEVICE_NODE_HEADER_HEIGHT + 36 /* WiFi-only indicator space */
+	if (portCount <= 0) return DEVICE_NODE_HEADER_HEIGHT + INFO_STRIP_HEIGHT + 36 /* WiFi-only indicator space */
 	const portsPerRow = Math.min(PORTS_PER_ROW, Math.max(1, portCount))
 	const rows = Math.ceil(portCount / portsPerRow)
 	const spacing = PORT_SIZE + PORT_GAP
-	return DEVICE_NODE_HEADER_HEIGHT + 14 + rows * spacing + 14
+	return DEVICE_NODE_HEADER_HEIGHT + INFO_STRIP_HEIGHT + 14 + rows * spacing + 14
 }
 
 export function hexToRgb(hex: string): { r: number; g: number; b: number } {
@@ -724,20 +725,35 @@ export function getGatewaySubnet(
 	portConfigs: PortConfigRow[],
 ): { subnet: string; gatewayIp: string; gatewayDeviceName: string; network: number; cidr: number; mask: number } | null {
 	const domain = getBroadcastDomain(deviceId, connections, devices)
-	// Look for L3 device interfaces within this domain that have IPs
+
+	// Look for L3 device (gateway) at the edge of this broadcast domain
 	for (const devId of domain) {
 		const dev = devices.find((d) => d.id === devId)
 		if (!dev) continue
 		const caps = DEVICE_CAPABILITIES[dev.deviceType as DeviceType]
 		if (!caps || !caps.canBeGateway) continue
-		// Find ports on this L3 device that connect into this broadcast domain and have IPs
-		const l3Ports = portConfigs.filter((pc) => pc.deviceId === devId && pc.ipAddress)
-		for (const l3Port of l3Ports) {
-			const parsed = parseIp(l3Port.ipAddress!)
+
+		// Find the specific L3 port that connects INTO this broadcast domain
+		// by looking at connections between this L3 device and other devices in the domain
+		const connsIntoDomain = connections.filter((c) => {
+			if (c.deviceAId === devId) {
+				return domain.has(c.deviceBId) && c.deviceBId !== devId
+			}
+			if (c.deviceBId === devId) {
+				return domain.has(c.deviceAId) && c.deviceAId !== devId
+			}
+			return false
+		})
+
+		for (const conn of connsIntoDomain) {
+			const l3Port = conn.deviceAId === devId ? conn.portA : conn.portB
+			const pc = portConfigs.find((p) => p.deviceId === devId && p.portNumber === l3Port && p.ipAddress)
+			if (!pc) continue
+			const parsed = parseIp(pc.ipAddress!)
 			if (!parsed) continue
 			return {
 				subnet: `${ipToString(parsed.network)}/${parsed.cidr}`,
-				gatewayIp: l3Port.ipAddress!,
+				gatewayIp: pc.ipAddress!,
 				gatewayDeviceName: dev.name,
 				network: parsed.network,
 				cidr: parsed.cidr,
@@ -793,16 +809,20 @@ function parseIpPlain(ip: string): number | null {
 /**
  * Get the next available IP from a DHCP host's range.
  * Scans the host device's dhcpRangeStart..dhcpRangeEnd, skipping IPs
- * already assigned to devices connected via WiFi to this host.
+ * already assigned to any connected client (WiFi or wired).
  *
- * Returns a plain IP string like "192.168.1.101" or null if the range
- * is full or the host doesn't have DHCP configured.
+ * If `gatewayPortIp` is provided (the host's port IP with CIDR, e.g. "192.168.68.1/24"),
+ * the DHCP range must fall within that subnet. Otherwise assignment is skipped.
+ *
+ * Returns an IP string with CIDR notation like "192.168.1.101/24"
+ * or null if the range is full, subnet mismatch, or DHCP not configured.
  */
 export function getNextDhcpIp(
 	hostDevice: DeviceRow,
 	connections: ConnectionRow[],
 	devices: DeviceRow[],
 	portConfigs: PortConfigRow[],
+	gatewayPortIp?: string | null,
 ): string | null {
 	if (!hostDevice.dhcpEnabled || !hostDevice.dhcpRangeStart || !hostDevice.dhcpRangeEnd) return null
 
@@ -810,17 +830,44 @@ export function getNextDhcpIp(
 	const end = parseIpPlain(hostDevice.dhcpRangeEnd)
 	if (start === null || end === null || start > end) return null
 
-	/* Collect all IPs currently assigned to WiFi clients of this host */
-	const wifiConns = connections.filter(
-		(c) => c.connectionType === "wifi" &&
-			(c.deviceAId === hostDevice.id || c.deviceBId === hostDevice.id),
+	/* If a gateway port IP is given, verify DHCP range is in the same subnet */
+	let cidr = 24 /* default */
+	if (gatewayPortIp) {
+		const gw = parseIp(gatewayPortIp)
+		if (!gw) return null
+		cidr = gw.cidr
+		const mask = cidr > 0 ? (~0 << (32 - cidr)) >>> 0 : 0
+		const gwNet = (gw.ip & mask) >>> 0
+		const startNet = (start & mask) >>> 0
+		if (gwNet !== startNet) return null /* DHCP range not in this port's subnet */
+	} else {
+		/* Derive CIDR from the common prefix of start..end range (min /24) */
+		const xor = (start ^ end) >>> 0
+		if (xor > 0) {
+			cidr = 32 - Math.ceil(Math.log2(xor + 1))
+		}
+		if (cidr > 24) cidr = 24
+	}
+
+	/* Collect all IPs assigned to any client connected to this host (WiFi + wired) */
+	const allConns = connections.filter(
+		(c) => c.deviceAId === hostDevice.id || c.deviceBId === hostDevice.id,
 	)
 	const assignedIps = new Set<number>()
-	for (const wc of wifiConns) {
-		const clientId = wc.deviceAId === hostDevice.id ? wc.deviceBId : wc.deviceAId
-		const pc = portConfigs.find((p) => p.deviceId === clientId && p.portNumber === 0)
+	for (const conn of allConns) {
+		const clientId = conn.deviceAId === hostDevice.id ? conn.deviceBId : conn.deviceAId
+		const clientPort = conn.deviceAId === hostDevice.id ? conn.portB : conn.portA
+		const pc = portConfigs.find((p) => p.deviceId === clientId && p.portNumber === clientPort)
 		if (pc?.ipAddress) {
-			/* strip CIDR if present */
+			const plain = pc.ipAddress.split("/")[0]
+			const n = parseIpPlain(plain)
+			if (n !== null) assignedIps.add(n)
+		}
+	}
+
+	/* Also exclude any IPs on host device ports themselves */
+	for (const pc of portConfigs) {
+		if (pc.deviceId === hostDevice.id && pc.ipAddress) {
 			const plain = pc.ipAddress.split("/")[0]
 			const n = parseIpPlain(plain)
 			if (n !== null) assignedIps.add(n)
@@ -829,7 +876,7 @@ export function getNextDhcpIp(
 
 	/* Find first free IP */
 	for (let ip = start; ip <= end; ip++) {
-		if (!assignedIps.has(ip)) return ipToString(ip)
+		if (!assignedIps.has(ip)) return `${ipToString(ip)}/${cidr}`
 	}
 	return null /* Range exhausted */
 }

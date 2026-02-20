@@ -3,7 +3,7 @@ import { z } from "zod"
 
 import { db } from "@/db"
 import * as schema from "@/db/schema"
-import { getBroadcastDomain, type ConnectionRow, type DeviceRow } from "@/lib/topology-types"
+import { DEVICE_CAPABILITIES, getBroadcastDomain, getGatewaySubnet, parseIp, type ConnectionRow, type DeviceRow, type DeviceType, type PortConfigRow } from "@/lib/topology-types"
 import { createTRPCRouter, publicProcedure } from "./init"
 
 import type { TRPCRouterRecord } from "@trpc/server"
@@ -191,6 +191,32 @@ const devicesRouter = {
 			/* Validate management IP format */
 			if (fields.managementIp && !isValidIp(fields.managementIp)) {
 				throw new Error("Invalid management IP format")
+			}
+
+			/* Validate management IP is in the correct subnet for its broadcast domain */
+			if (fields.managementIp) {
+				const deviceRows = await db.select().from(schema.devices).where(eq(schema.devices.id, id))
+				const device = deviceRows[0]
+				if (device) {
+					const caps = DEVICE_CAPABILITIES[device.deviceType as DeviceType]
+					/* Skip subnet check for cloud devices and L3 devices (they define the subnet) */
+					if (caps && caps.layer !== "cloud" && caps.layer !== "L3") {
+						const wsDevices = await db.select().from(schema.devices).where(eq(schema.devices.workspaceId, device.workspaceId))
+						const wsConns = await db.select().from(schema.connections).where(eq(schema.connections.workspaceId, device.workspaceId))
+						const wsPortConfigs = await db.select().from(schema.portConfigs).where(
+							inArray(schema.portConfigs.deviceId, wsDevices.map((d) => d.id)),
+						)
+						const gw = getGatewaySubnet(id, 0, wsDevices as DeviceRow[], wsConns as ConnectionRow[], wsPortConfigs as PortConfigRow[])
+						if (gw) {
+							const parsed = parseIp(fields.managementIp)
+							if (parsed && ((parsed.ip & gw.mask) >>> 0) !== gw.network) {
+								throw new Error(
+									`Management IP ${fields.managementIp} is not in the subnet ${gw.subnet} (gateway: ${gw.gatewayDeviceName}). The device must use an IP in its connected network segment.`,
+								)
+							}
+						}
+					}
+				}
 			}
 
 			/* Validate gateway IP format */

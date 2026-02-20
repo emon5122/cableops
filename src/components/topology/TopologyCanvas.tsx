@@ -4,6 +4,7 @@ import PortContextMenu from "@/components/topology/PortContextMenu"
 import {
 	DEVICE_CAPABILITIES,
 	DEVICE_NODE_WIDTH,
+	INFO_STRIP_HEIGHT,
 	PORT_SIZE,
 	getDeviceNodeHeight,
 	getPortDisplayColor,
@@ -383,6 +384,30 @@ export default function TopologyCanvas({
 
 	const contextMenuDevice = contextMenu ? (devices.find((d) => d.id === contextMenu.deviceId) ?? null) : null
 
+	/* ── Per-device info for canvas display ── */
+	const deviceInfoMap = useMemo(() => {
+		const map = new Map<string, { ip: string | null; badges: { label: string; color: string }[] }>()
+		for (const device of devices) {
+			const caps = DEVICE_CAPABILITIES[device.deviceType as DeviceType]
+			let ip: string | null = device.managementIp ?? null
+			const badges: { label: string; color: string }[] = []
+
+			/* For L3 / endpoint devices without managementIp, find first port IP */
+			if (!ip) {
+				const firstPortIp = portConfigs.find((pc) => pc.deviceId === device.id && pc.ipAddress)
+				if (firstPortIp) ip = firstPortIp.ipAddress
+			}
+
+			if (device.dhcpEnabled) badges.push({ label: "DHCP", color: "#06b6d4" })
+			if (device.natEnabled) badges.push({ label: "NAT", color: "#f59e0b" })
+			if (device.ssid) badges.push({ label: device.ssid, color: "#38bdf8" })
+			if (device.gateway) badges.push({ label: `GW ${device.gateway}`, color: "#a78bfa" })
+
+			map.set(device.id, { ip, badges })
+		}
+		return map
+	}, [devices, portConfigs])
+
 	/* Canvas extent */
 	const canvasExtent = useMemo(() => {
 		let maxX = 800
@@ -587,6 +612,40 @@ export default function TopologyCanvas({
 								)}
 							</div>
 
+							{/* Info strip — IP, badges */}
+							{(() => {
+								const info = deviceInfoMap.get(device.id)
+								const hasContent = info && (info.ip || info.badges.length > 0)
+								return (
+									<div
+										className="px-2.5 flex items-center gap-1.5 overflow-hidden"
+										style={{ height: INFO_STRIP_HEIGHT, color: "var(--app-text-dim)", borderBottom: "1px solid var(--app-border)" }}
+									>
+										{hasContent ? (
+											<>
+												{info.ip && (
+													<span className="text-[10px] font-mono truncate shrink-0" style={{ color: "var(--app-text-secondary)" }}>
+														{info.ip}
+													</span>
+												)}
+												<span className="flex-1" />
+												{info.badges.map((b) => (
+													<span
+														key={b.label}
+														className="text-[8px] font-semibold px-1 py-px rounded shrink-0 uppercase tracking-wide"
+														style={{ backgroundColor: `${b.color}18`, color: b.color }}
+													>
+														{b.label}
+													</span>
+												))}
+											</>
+										) : (
+											<span className="text-[10px] opacity-30 italic">No config</span>
+										)}
+									</div>
+								)
+							})()}
+
 							{/* Port grid */}
 							{device.portCount > 0 ? (
 								<div className="p-2 flex flex-wrap gap-1 justify-center">
@@ -598,6 +657,7 @@ export default function TopologyCanvas({
 									const portTextColor = connected ? (luminance(portColor) > 0.5 ? "#000" : "#fff") : "var(--app-port-empty)"
 									const pc = getPortConfig(device.id, pNum)
 									const hasConfig = !!(pc && (pc.vlan || pc.speed || pc.alias))
+									const roleColor = pc?.portRole === "uplink" ? "#fbbf24" : pc?.portRole === "downlink" ? "#22d3ee" : null
 
 									return (
 										<button
@@ -629,6 +689,12 @@ export default function TopologyCanvas({
 												<div
 													className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full"
 													style={{ backgroundColor: pc?.vlan ? "#06b6d4" : "#f59e0b" }}
+												/>
+											)}
+											{roleColor && (
+												<div
+													className="absolute top-0 left-0 right-0 h-[2px] rounded-t-md"
+													style={{ backgroundColor: roleColor }}
 												/>
 											)}
 										</button>

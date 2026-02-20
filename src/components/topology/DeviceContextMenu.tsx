@@ -63,7 +63,7 @@ export default function DeviceContextMenu({
 	}, [onClose])
 
 	/* ── Capability checks ── */
-	const hasNetwork = caps.managementIp || caps.perPortIp || caps.layer === "endpoint"
+	const hasNetwork = caps.managementIp || caps.layer === "endpoint"
 	const hasDhcp = caps.dhcpCapable
 	const hasNat = caps.natCapable
 	const hasWifi = caps.wifiHost
@@ -152,6 +152,14 @@ export default function DeviceContextMenu({
 							</button>
 						)}
 
+						{/* Per-port IP hint for L3 devices */}
+						{caps.perPortIp && !hasNetwork && (
+							<div className="px-3 py-1.5 text-[10px] text-(--app-text-dim) italic flex items-center gap-2">
+								<NetIcon />
+								<span>Right-click each port to set interface IPs &amp; roles</span>
+							</div>
+						)}
+
 						{/* DHCP */}
 						{hasDhcp && (
 							<button
@@ -169,21 +177,27 @@ export default function DeviceContextMenu({
 							</button>
 						)}
 
-						{/* NAT toggle — inline */}
+						{/* NAT toggle — inline with description */}
 						{hasNat && (
-							<button
-								type="button"
-								className="w-full px-3 py-1.5 text-left text-(--app-text) hover:bg-(--app-surface-hover) flex items-center justify-between"
-								onClick={() => onUpdateDevice(device.id, { natEnabled: !device.natEnabled })}
-							>
-								<span className="flex items-center gap-2">
-									<NatIcon />
-									NAT
-								</span>
-								<span className={`text-[10px] ${device.natEnabled ? "text-emerald-400" : "text-(--app-text-muted)"}`}>
-									{device.natEnabled ? "Enabled" : "Disabled"}
-								</span>
-							</button>
+							<div className="px-3 py-1.5">
+								<button
+									type="button"
+									className="w-full text-left text-(--app-text) hover:bg-(--app-surface-hover) flex items-center justify-between rounded px-1 py-1"
+									onClick={() => onUpdateDevice(device.id, { natEnabled: !device.natEnabled })}
+								>
+									<span className="flex items-center gap-2">
+										<NatIcon />
+										NAT
+									</span>
+									<span className={`text-[10px] ${device.natEnabled ? "text-emerald-400" : "text-(--app-text-muted)"}`}>
+										{device.natEnabled ? "Enabled" : "Disabled"}
+									</span>
+								</button>
+								<p className="text-[9px] text-(--app-text-dim) mt-0.5 pl-6">
+									Translates private LAN IPs to public IP for internet access.
+									Enable when this router connects to an ISP / cloud.
+								</p>
+							</div>
 						)}
 
 						{/* WiFi */}
