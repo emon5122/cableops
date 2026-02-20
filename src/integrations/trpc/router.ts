@@ -1,6 +1,3 @@
-import type { TRPCRouterRecord } from "@trpc/server";
-import { eq, inArray } from "drizzle-orm";
-import { z } from "zod";
 import { db } from "@/db";
 import * as schema from "@/db/schema";
 import {
@@ -10,6 +7,9 @@ import {
 	type InterfaceRow,
 	parseIp,
 } from "@/lib/topology-types";
+import type { TRPCRouterRecord } from "@trpc/server";
+import { and, eq, inArray } from "drizzle-orm";
+import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "./init";
 
 /* ── IP Validation Helpers (server-side) ── */
@@ -55,6 +55,23 @@ function parseIpMaybeCidr(
 /** Validate an IP string is well-formed (plain or CIDR) */
 function isValidIp(ip: string): boolean {
 	return parseIpMaybeCidr(ip) !== null;
+}
+
+/** Validate CIDR notation like 192.168.1.0/24 */
+function isValidCidr(ipCidr: string): boolean {
+	return parseIp(ipCidr) !== null;
+}
+
+/** Validate plain IPv4 like 192.168.1.1 */
+function isValidPlainIpv4(ip: string): boolean {
+	return parseIpv4(ip) !== null;
+}
+
+/** Check if a plain IPv4 address belongs to a subnet */
+function ipv4InSubnet(ip: string, network: number, mask: number): boolean {
+	const n = parseIpv4(ip);
+	if (n === null) return false;
+	return ((n & mask) >>> 0) === network;
 }
 
 /** Strip CIDR suffix to get the plain IP part */
@@ -237,40 +254,53 @@ const connectionsRouter = {
 				throw new Error("Cannot connect a device to itself");
 			}
 
-			/* For wired connections, check port isn't already occupied */
-			if (input.connectionType === "wired") {
-				const existing = await db
-					.select()
-					.from(schema.connections)
-					.where(eq(schema.connections.workspaceId, input.workspaceId));
-				for (const conn of existing) {
-					if (
-						(conn.deviceAId === input.deviceAId &&
-							conn.portA === input.portA) ||
-						(conn.deviceBId === input.deviceAId && conn.portB === input.portA)
-					) {
-						throw new Error(
-							`Port ${input.portA} on device A is already connected`,
-						);
-					}
-					if (
-						(conn.deviceAId === input.deviceBId &&
-							conn.portA === input.portB) ||
-						(conn.deviceBId === input.deviceBId && conn.portB === input.portB)
-					) {
-						throw new Error(
-							`Port ${input.portB} on device B is already connected`,
-						);
-					}
+			/* Validate both devices exist and belong to the same workspace */
+			const linkedDevices = await db
+				.select()
+				.from(schema.devices)
+				.where(inArray(schema.devices.id, [input.deviceAId, input.deviceBId]));
+			const deviceA = linkedDevices.find((d) => d.id === input.deviceAId);
+			const deviceB = linkedDevices.find((d) => d.id === input.deviceBId);
+			if (!deviceA || !deviceB) {
+				throw new Error("Both connection endpoints must reference valid devices");
+			}
+			if (
+				deviceA.workspaceId !== input.workspaceId ||
+				deviceB.workspaceId !== input.workspaceId
+			) {
+				throw new Error("Both devices must belong to the same workspace");
+			}
+
+			/* Validate port numbers exist on both devices (0..portCount) */
+			if (input.portA < 0 || input.portA > deviceA.portCount) {
+				throw new Error(`Port ${input.portA} does not exist on device A`);
+			}
+			if (input.portB < 0 || input.portB > deviceB.portCount) {
+				throw new Error(`Port ${input.portB} does not exist on device B`);
+			}
+
+			/* A port can only participate in one connection */
+			const existing = await db
+				.select()
+				.from(schema.connections)
+				.where(eq(schema.connections.workspaceId, input.workspaceId));
+			for (const conn of existing) {
+				if (
+					(conn.deviceAId === input.deviceAId && conn.portA === input.portA) ||
+					(conn.deviceBId === input.deviceAId && conn.portB === input.portA)
+				) {
+					throw new Error(`Port ${input.portA} on device A is already connected`);
+				}
+				if (
+					(conn.deviceAId === input.deviceBId && conn.portA === input.portB) ||
+					(conn.deviceBId === input.deviceBId && conn.portB === input.portB)
+				) {
+					throw new Error(`Port ${input.portB} on device B is already connected`);
 				}
 			}
 
 			/* For WiFi, prevent duplicate WiFi link between same two devices */
 			if (input.connectionType === "wifi") {
-				const existing = await db
-					.select()
-					.from(schema.connections)
-					.where(eq(schema.connections.workspaceId, input.workspaceId));
 				const duplicate = existing.find(
 					(c) =>
 						c.connectionType === "wifi" &&
@@ -361,18 +391,157 @@ const interfacesRouter = {
 			}),
 		)
 		.mutation(async ({ input }) => {
+			const deviceRows = await db
+				.select()
+				.from(schema.devices)
+				.where(eq(schema.devices.id, input.deviceId));
+			const device = deviceRows[0];
+			if (!device) throw new Error("Device not found");
+			if (input.portNumber < 0 || input.portNumber > device.portCount) {
+				throw new Error(
+					`Port ${input.portNumber} does not exist on device ${device.name}`,
+				);
+			}
+
+			const existing = await db
+				.select()
+				.from(schema.interfaces)
+				.where(eq(schema.interfaces.deviceId, input.deviceId));
+			const match = existing.find((p) => p.portNumber === input.portNumber);
+
 			/* ── IP validation ── */
 			if (input.ipAddress) {
 				if (!isValidIp(input.ipAddress)) {
 					throw new Error(`Invalid IP address format: ${input.ipAddress}`);
 				}
 
-				const deviceRows = await db
+				const wsDevices = await db
 					.select()
 					.from(schema.devices)
-					.where(eq(schema.devices.id, input.deviceId));
-				const device = deviceRows[0];
-				if (device) {
+					.where(eq(schema.devices.workspaceId, device.workspaceId));
+				const wsConns = await db
+					.select()
+					.from(schema.connections)
+					.where(eq(schema.connections.workspaceId, device.workspaceId));
+				const wsInterfaces = await db
+					.select()
+					.from(schema.interfaces)
+					.where(
+						inArray(
+							schema.interfaces.deviceId,
+							wsDevices.map((d) => d.id),
+						),
+					);
+
+				/* Get the network segment for this specific port */
+				const seg = getNetworkSegment(
+					input.deviceId,
+					input.portNumber,
+					wsConns as ConnectionRow[],
+					wsDevices as DeviceRow[],
+					wsInterfaces as InterfaceRow[],
+				);
+				const segDeviceIds = [...new Set(seg.ports.map((p) => p.deviceId))];
+
+				if (segDeviceIds.length > 0) {
+					const segConfigs = wsInterfaces.filter((pc) =>
+						seg.ports.some(
+							(sp) =>
+								sp.deviceId === pc.deviceId && sp.portNumber === pc.portNumber,
+						),
+					);
+
+					const proposedPlain = stripCidr(input.ipAddress).trim();
+					for (const pc of segConfigs) {
+						if (
+							pc.deviceId === input.deviceId &&
+							pc.portNumber === input.portNumber
+						)
+							continue;
+						if (!pc.ipAddress) continue;
+						const existingPlain = stripCidr(pc.ipAddress).trim();
+						if (existingPlain === proposedPlain) {
+							throw new Error(
+								`IP ${proposedPlain} is already assigned to another device in this network segment`,
+							);
+						}
+					}
+
+					/* Subnet validation: non-gateway ports must match the segment gateway subnet */
+					if (seg.gateway) {
+						const isGwPort =
+							seg.gateway.deviceId === input.deviceId &&
+							seg.gateway.portNumber === input.portNumber;
+						if (!isGwPort) {
+							const parsed = parseIp(input.ipAddress);
+							if (
+								parsed &&
+								(parsed.ip & seg.gateway.mask) >>> 0 !== seg.gateway.network
+							) {
+								const gwDev = wsDevices.find((d) => d.id === seg.gateway?.deviceId);
+								throw new Error(
+									`IP ${input.ipAddress} is not in subnet ${seg.subnet} (gateway: ${gwDev?.name ?? "?"} P${seg.gateway.portNumber})`,
+								);
+							}
+						}
+					}
+				}
+			}
+
+			/* ── Gateway IP validation ── */
+			if (input.gateway && !isValidIp(input.gateway)) {
+				throw new Error("Invalid gateway IP format");
+			}
+
+			/* ── DHCP range validation ── */
+			const effectiveDhcpEnabled = input.dhcpEnabled ?? match?.dhcpEnabled ?? false;
+			const effectiveDhcpStart =
+				input.dhcpRangeStart ?? match?.dhcpRangeStart ?? null;
+			const effectiveDhcpEnd = input.dhcpRangeEnd ?? match?.dhcpRangeEnd ?? null;
+			const effectiveInterfaceIp = input.ipAddress ?? match?.ipAddress ?? null;
+
+			if (
+				effectiveDhcpEnabled ||
+				input.dhcpRangeStart !== undefined ||
+				input.dhcpRangeEnd !== undefined
+			) {
+				if (effectiveDhcpEnabled) {
+					if (!effectiveDhcpStart || !effectiveDhcpEnd) {
+						throw new Error(
+							"DHCP enabled requires both start and end range addresses",
+						);
+					}
+					if (!effectiveInterfaceIp) {
+						throw new Error(
+							"DHCP enabled requires an interface IP in CIDR format",
+						);
+					}
+
+					const iface = parseIp(effectiveInterfaceIp);
+					if (!iface) {
+						throw new Error(
+							"Interface IP must be valid CIDR when DHCP is enabled",
+						);
+					}
+
+					const s = parseIpv4(effectiveDhcpStart);
+					const e = parseIpv4(effectiveDhcpEnd);
+					if (s === null) throw new Error("Invalid DHCP range start IP");
+					if (e === null) throw new Error("Invalid DHCP range end IP");
+					if (s > e) {
+						throw new Error(
+							"DHCP range start must be less than or equal to end",
+						);
+					}
+					if (
+						!ipv4InSubnet(effectiveDhcpStart, iface.network, iface.mask) ||
+						!ipv4InSubnet(effectiveDhcpEnd, iface.network, iface.mask)
+					) {
+						throw new Error(
+							"DHCP range must be inside the interface subnet",
+						);
+					}
+
 					const wsDevices = await db
 						.select()
 						.from(schema.devices)
@@ -391,7 +560,6 @@ const interfacesRouter = {
 							),
 						);
 
-					/* Get the network segment for this specific port */
 					const seg = getNetworkSegment(
 						input.deviceId,
 						input.portNumber,
@@ -399,93 +567,32 @@ const interfacesRouter = {
 						wsDevices as DeviceRow[],
 						wsInterfaces as InterfaceRow[],
 					);
-					const segDeviceIds = [...new Set(seg.ports.map((p) => p.deviceId))];
+					const segConfigs = wsInterfaces.filter((pc) =>
+						seg.ports.some(
+							(sp) =>
+								sp.deviceId === pc.deviceId && sp.portNumber === pc.portNumber,
+						),
+					);
 
-					if (segDeviceIds.length > 0) {
-						const segConfigs = wsInterfaces.filter((pc) =>
-							seg.ports.some(
-								(sp) =>
-									sp.deviceId === pc.deviceId &&
-									sp.portNumber === pc.portNumber,
-							),
-						);
-
-						const proposedPlain = stripCidr(input.ipAddress).trim();
-						for (const pc of segConfigs) {
-							if (
-								pc.deviceId === input.deviceId &&
-								pc.portNumber === input.portNumber
-							)
-								continue;
-							if (!pc.ipAddress) continue;
-							const existingPlain = stripCidr(pc.ipAddress).trim();
-							if (existingPlain === proposedPlain) {
-								throw new Error(
-									`IP ${proposedPlain} is already assigned to another device in this network segment`,
-								);
-							}
+					for (const pc of segConfigs) {
+						if (
+							pc.deviceId === input.deviceId &&
+							pc.portNumber === input.portNumber
+						)
+							continue;
+						if (!pc.ipAddress) continue;
+						const staticIp = parseIpv4(stripCidr(pc.ipAddress));
+						if (staticIp === null) continue;
+						if (staticIp >= s && staticIp <= e) {
+							throw new Error(
+								`DHCP range collides with static IP ${stripCidr(pc.ipAddress)} in this segment`,
+							);
 						}
-
-						/* Subnet validation: non-gateway ports must match the segment gateway subnet */
-						if (seg.gateway) {
-							const isGwPort =
-								seg.gateway.deviceId === input.deviceId &&
-								seg.gateway.portNumber === input.portNumber;
-							if (!isGwPort) {
-								const parsed = parseIp(input.ipAddress);
-								if (
-									parsed &&
-									(parsed.ip & seg.gateway.mask) >>> 0 !== seg.gateway.network
-								) {
-									const gwDev = wsDevices.find(
-										(d) => d.id === seg.gateway?.deviceId,
-									);
-									throw new Error(
-										`IP ${input.ipAddress} is not in subnet ${seg.subnet} (gateway: ${gwDev?.name ?? "?"} P${seg.gateway.portNumber})`,
-									);
-								}
-							}
-						}
-					}
-				}
-			}
-
-			/* ── Gateway IP validation ── */
-			if (input.gateway && !isValidIp(input.gateway)) {
-				throw new Error("Invalid gateway IP format");
-			}
-
-			/* ── DHCP range validation ── */
-			if (input.dhcpRangeStart || input.dhcpRangeEnd) {
-				const start = input.dhcpRangeStart ?? null;
-				const end = input.dhcpRangeEnd ?? null;
-				if (start && !parseIpv4(start))
-					throw new Error("Invalid DHCP range start IP");
-				if (end && !parseIpv4(end))
-					throw new Error("Invalid DHCP range end IP");
-				if (start && end) {
-					const s = parseIpv4(start)!;
-					const e = parseIpv4(end)!;
-					if (s > e)
-						throw new Error(
-							"DHCP range start must be less than or equal to end",
-						);
-					if (s >>> 8 !== e >>> 8) {
-						throw new Error(
-							"DHCP range start and end must be in the same /24 subnet",
-						);
 					}
 				}
 			}
 
 			/* ── Upsert logic ── */
-			const existing = await db
-				.select()
-				.from(schema.interfaces)
-				.where(eq(schema.interfaces.deviceId, input.deviceId));
-
-			const match = existing.find((p) => p.portNumber === input.portNumber);
-
 			if (match) {
 				const { deviceId: _d, portNumber: _p, ...fields } = input;
 				const rows = await db
@@ -549,11 +656,42 @@ const routesRouter = {
 			}),
 		)
 		.mutation(async ({ input }) => {
-			if (!isValidIp(input.destination)) {
+			const deviceRows = await db
+				.select()
+				.from(schema.devices)
+				.where(eq(schema.devices.id, input.deviceId));
+			const device = deviceRows[0];
+			if (!device) {
+				throw new Error("Route must reference a valid device");
+			}
+
+			if (!isValidCidr(input.destination)) {
 				throw new Error(`Invalid destination format: ${input.destination}`);
 			}
-			if (!isValidIp(input.nextHop)) {
+			if (!isValidPlainIpv4(input.nextHop)) {
 				throw new Error(`Invalid next-hop format: ${input.nextHop}`);
+			}
+
+			if (input.interfacePort !== null && input.interfacePort !== undefined) {
+				if (input.interfacePort < 0 || input.interfacePort > device.portCount) {
+					throw new Error(
+						`Interface port ${input.interfacePort} does not exist on ${device.name}`,
+					);
+				}
+				const ifaceRows = await db
+					.select()
+					.from(schema.interfaces)
+					.where(
+						and(
+							eq(schema.interfaces.deviceId, input.deviceId),
+							eq(schema.interfaces.portNumber, input.interfacePort),
+						),
+					);
+				if (!ifaceRows[0]) {
+					throw new Error(
+						`Interface port ${input.interfacePort} must be configured before using it in a route`,
+					);
+				}
 			}
 
 			if (input.id) {

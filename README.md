@@ -9,16 +9,46 @@ Design, visualize, and document your physical network infrastructure with an int
 ## Features
 
 - **Interactive Topology Canvas** — Drag-and-drop network device placement with real-time wire routing
-- **9 Device Types** — Switch, Router, PC, Server, Phone, Camera, Firewall, Access Point, Cloud
+- **18 Device Types** — Layer-1/2/3 and endpoint models including switch, router, firewall, AP, cloud, server, phone, smartphone, laptop, tablet, and more
 - **Port Management** — Right-click ports to configure VLAN, link speed, aliases, and reservations
+- **Interface-Centric Networking** — Per-interface IP, DHCP, NAT, gateway, SSID, and port role configuration
+- **Static Routing** — Per-device route table entries with destination CIDR, next-hop, metric, and optional egress interface
 - **Smart Wire Routing** — Bezier curve connections with gradient coloring that shows peer device colors
 - **Clickable Wires** — Click any connection to select it, then delete with one click
 - **Room & Barrier Annotations** — Right-click the canvas to draw rooms, walls, and labels for floor plan context
 - **Color-Coded Devices** — Assign colors per device; ports display the connected peer's color for quick identification
 - **Device Editing** — Rename devices (double-click), change colors, and modify port counts
 - **Connection Table** — Tabular view of all connections with search and filtering
+- **Segment & Reachability Analysis** — L2/L3 segment discovery, duplicate IP checks, subnet mismatch detection, gateway analysis, and forwarding diagnostics
 - **Authentication** — Built-in user auth via better-auth with session management
 - **Real-Time Persistence** — All changes saved instantly to PostgreSQL via tRPC
+
+## Architecture Summary
+
+CableOps is an **interface-first network validation engine** with visual topology modeling.
+
+- **Interface-Centric**: networking behavior is modeled on `interfaces` per `(deviceId, portNumber)`
+- **Workspace-Isolated**: all topology entities are scoped to `workspaceId`
+- **Capability vs Config Split**: device capability is separate from runtime interface config
+- **Routing-Aware**: static routes are stored separately in `routes`
+- **Simulation-Oriented**: segmentation and reachability logic is deterministic and validation-focused
+
+### Core Model
+
+- `devices`: hardware/logical nodes and capabilities (`deviceType`, `ipForwarding`, `portCount`, position)
+- `interfaces`: per-port config (`ipAddress`, `vlan`, `portMode`, `dhcpEnabled`, `natEnabled`, `gateway`, `ssid`)
+- `connections`: physical/wifi links (`deviceAId:portA` ↔ `deviceBId:portB`)
+- `routes`: static route entries per device (`destination`, `nextHop`, `interfacePort`, `metric`)
+- `workspaces`: tenant boundary and cascade root
+- `annotations`: canvas-only visual context
+
+### Enforced Constraints
+
+- Unique `(deviceId, portNumber)` in `interfaces`
+- Workspace and endpoint validation in tRPC mutations
+- Port existence checks against device `portCount`
+- CIDR validation for route destinations and interface-aware DHCP range checks
+- Indexed query paths for `workspaceId`, `deviceId`, `deviceAId`, and `deviceBId`
 
 ## Tech Stack
 
@@ -84,6 +114,7 @@ The app will be available at [http://localhost:3000](http://localhost:3000).
 | `pnpm lint` | Lint with Biome |
 | `pnpm format` | Format with Biome |
 | `pnpm check` | Lint + format check |
+| `pnpm check-types` | TypeScript type-check (`tsc --noEmit`) |
 | `pnpm db:generate` | Generate Drizzle migrations |
 | `pnpm db:migrate` | Run pending migrations |
 | `pnpm db:push` | Push schema directly (dev) |

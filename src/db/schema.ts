@@ -1,9 +1,11 @@
 import {
 	boolean,
+	index,
 	integer,
 	pgTable,
 	text,
 	timestamp,
+	uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 /* ═══════════════════════════════════════════════════
@@ -64,123 +66,173 @@ export const verification = pgTable("verification", {
    CableOps tables
    ═══════════════════════════════════════════════════ */
 
-export const workspaces = pgTable("workspaces", {
-	id: text("id").primaryKey(),
-	name: text("name").notNull(),
-	ownerId: text("owner_id")
-		.notNull()
-		.references(() => user.id, { onDelete: "cascade" }),
-	createdAt: timestamp("created_at").defaultNow(),
-});
+export const workspaces = pgTable(
+	"workspaces",
+	{
+		id: text("id").primaryKey(),
+		name: text("name").notNull(),
+		ownerId: text("owner_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		createdAt: timestamp("created_at").defaultNow(),
+	},
+	(table) => ({
+		ownerIdx: index("workspaces_owner_idx").on(table.ownerId),
+	}),
+);
 
-export const devices = pgTable("devices", {
-	id: text("id").primaryKey(),
-	workspaceId: text("workspace_id")
-		.notNull()
-		.references(() => workspaces.id, { onDelete: "cascade" }),
-	name: text("name").notNull(),
-	deviceType: text("device_type").notNull().default("switch"),
-	color: text("color").notNull().default("#3b82f6"),
-	portCount: integer("port_count").notNull().default(24),
-	positionX: integer("position_x").notNull().default(100),
-	positionY: integer("position_y").notNull().default(100),
-	maxSpeed: text("max_speed"),
-	/** Can this device forward packets between interfaces? (routers: always, PCs: optional) */
-	ipForwarding: boolean("ip_forwarding").default(false),
-	createdAt: timestamp("created_at").defaultNow(),
-});
+export const devices = pgTable(
+	"devices",
+	{
+		id: text("id").primaryKey(),
+		workspaceId: text("workspace_id")
+			.notNull()
+			.references(() => workspaces.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		deviceType: text("device_type").notNull().default("switch"),
+		color: text("color").notNull().default("#3b82f6"),
+		portCount: integer("port_count").notNull().default(24),
+		positionX: integer("position_x").notNull().default(100),
+		positionY: integer("position_y").notNull().default(100),
+		maxSpeed: text("max_speed"),
+		/** Can this device forward packets between interfaces? (routers: always, PCs: optional) */
+		ipForwarding: boolean("ip_forwarding").default(false),
+		createdAt: timestamp("created_at").defaultNow(),
+	},
+	(table) => ({
+		workspaceIdx: index("devices_workspace_idx").on(table.workspaceId),
+	}),
+);
 
-export const connections = pgTable("connections", {
-	id: text("id").primaryKey(),
-	workspaceId: text("workspace_id")
-		.notNull()
-		.references(() => workspaces.id, { onDelete: "cascade" }),
-	deviceAId: text("device_a_id")
-		.notNull()
-		.references(() => devices.id, { onDelete: "cascade" }),
-	portA: integer("port_a").notNull(),
-	deviceBId: text("device_b_id")
-		.notNull()
-		.references(() => devices.id, { onDelete: "cascade" }),
-	portB: integer("port_b").notNull(),
-	speed: text("speed"),
-	/** "wired" | "wifi" — determines visual representation */
-	connectionType: text("connection_type").default("wired"),
-	createdAt: timestamp("created_at").defaultNow(),
-});
+export const connections = pgTable(
+	"connections",
+	{
+		id: text("id").primaryKey(),
+		workspaceId: text("workspace_id")
+			.notNull()
+			.references(() => workspaces.id, { onDelete: "cascade" }),
+		deviceAId: text("device_a_id")
+			.notNull()
+			.references(() => devices.id, { onDelete: "cascade" }),
+		portA: integer("port_a").notNull(),
+		deviceBId: text("device_b_id")
+			.notNull()
+			.references(() => devices.id, { onDelete: "cascade" }),
+		portB: integer("port_b").notNull(),
+		speed: text("speed"),
+		/** "wired" | "wifi" — determines visual representation */
+		connectionType: text("connection_type").default("wired"),
+		createdAt: timestamp("created_at").defaultNow(),
+	},
+	(table) => ({
+		workspaceIdx: index("connections_workspace_idx").on(table.workspaceId),
+		deviceAIdx: index("connections_device_a_idx").on(table.deviceAId),
+		deviceBIdx: index("connections_device_b_idx").on(table.deviceBId),
+		deviceAPortUnique: uniqueIndex("connections_device_a_port_uq").on(
+			table.deviceAId,
+			table.portA,
+		),
+		deviceBPortUnique: uniqueIndex("connections_device_b_port_uq").on(
+			table.deviceBId,
+			table.portB,
+		),
+	}),
+);
 
 /**
  * Network interfaces — per-port configuration including IP, DHCP, WiFi, NAT.
  * Replaces the old port_configs + device-level networking fields.
  * Port 0 = management/loopback interface (for L2 switches, APs).
  */
-export const interfaces = pgTable("interfaces", {
-	id: text("id").primaryKey(),
-	deviceId: text("device_id")
-		.notNull()
-		.references(() => devices.id, { onDelete: "cascade" }),
-	portNumber: integer("port_number").notNull(),
-	alias: text("alias"),
-	reserved: boolean("reserved").notNull().default(false),
-	reservedLabel: text("reserved_label"),
-	speed: text("speed"),
-	vlan: integer("vlan"),
-	ipAddress: text("ip_address"),
-	macAddress: text("mac_address"),
-	/** Port mode: access | trunk | hybrid — only for L2 switch ports */
-	portMode: text("port_mode"),
-	/** Port role: uplink (WAN) | downlink (LAN) — determines traffic direction */
-	portRole: text("port_role"),
-	/** DHCP server on this interface */
-	dhcpEnabled: boolean("dhcp_enabled").default(false),
-	dhcpRangeStart: text("dhcp_range_start"),
-	dhcpRangeEnd: text("dhcp_range_end"),
-	/** WiFi SSID broadcast from this interface */
-	ssid: text("ssid"),
-	/** WiFi password for this interface */
-	wifiPassword: text("wifi_password"),
-	/** NAT masquerade on this interface (typically the outside/WAN interface) */
-	natEnabled: boolean("nat_enabled").default(false),
-	/** Default gateway IP reachable via this interface */
-	gateway: text("gateway"),
-	createdAt: timestamp("created_at").defaultNow(),
-});
+export const interfaces = pgTable(
+	"interfaces",
+	{
+		id: text("id").primaryKey(),
+		deviceId: text("device_id")
+			.notNull()
+			.references(() => devices.id, { onDelete: "cascade" }),
+		portNumber: integer("port_number").notNull(),
+		alias: text("alias"),
+		reserved: boolean("reserved").notNull().default(false),
+		reservedLabel: text("reserved_label"),
+		speed: text("speed"),
+		vlan: integer("vlan"),
+		ipAddress: text("ip_address"),
+		macAddress: text("mac_address"),
+		/** Port mode: access | trunk | hybrid — only for L2 switch ports */
+		portMode: text("port_mode"),
+		/** Port role: uplink (WAN) | downlink (LAN) — determines traffic direction */
+		portRole: text("port_role"),
+		/** DHCP server on this interface */
+		dhcpEnabled: boolean("dhcp_enabled").default(false),
+		dhcpRangeStart: text("dhcp_range_start"),
+		dhcpRangeEnd: text("dhcp_range_end"),
+		/** WiFi SSID broadcast from this interface */
+		ssid: text("ssid"),
+		/** WiFi password for this interface */
+		wifiPassword: text("wifi_password"),
+		/** NAT masquerade on this interface (typically the outside/WAN interface) */
+		natEnabled: boolean("nat_enabled").default(false),
+		/** Default gateway IP reachable via this interface */
+		gateway: text("gateway"),
+		createdAt: timestamp("created_at").defaultNow(),
+	},
+	(table) => ({
+		deviceIdx: index("interfaces_device_idx").on(table.deviceId),
+		devicePortUnique: uniqueIndex("interfaces_device_port_uq").on(
+			table.deviceId,
+			table.portNumber,
+		),
+	}),
+);
 
 /**
  * Static routes — per-device routing table entries.
  */
-export const routes = pgTable("routes", {
-	id: text("id").primaryKey(),
-	deviceId: text("device_id")
-		.notNull()
-		.references(() => devices.id, { onDelete: "cascade" }),
-	/** Destination network in CIDR, e.g. "0.0.0.0/0" for default route */
-	destination: text("destination").notNull(),
-	/** Next-hop IP address */
-	nextHop: text("next_hop").notNull(),
-	/** Egress interface port number (optional — auto-resolved if null) */
-	interfacePort: integer("interface_port"),
-	/** Route metric / priority (lower = preferred) */
-	metric: integer("metric").notNull().default(100),
-	createdAt: timestamp("created_at").defaultNow(),
-});
+export const routes = pgTable(
+	"routes",
+	{
+		id: text("id").primaryKey(),
+		deviceId: text("device_id")
+			.notNull()
+			.references(() => devices.id, { onDelete: "cascade" }),
+		/** Destination network in CIDR, e.g. "0.0.0.0/0" for default route */
+		destination: text("destination").notNull(),
+		/** Next-hop IP address */
+		nextHop: text("next_hop").notNull(),
+		/** Egress interface port number (optional — auto-resolved if null) */
+		interfacePort: integer("interface_port"),
+		/** Route metric / priority (lower = preferred) */
+		metric: integer("metric").notNull().default(100),
+		createdAt: timestamp("created_at").defaultNow(),
+	},
+	(table) => ({
+		deviceIdx: index("routes_device_idx").on(table.deviceId),
+	}),
+);
 
 /**
  * Canvas annotations — barriers, rooms, walls, labels drawn
  * on the topology canvas for visualization.
  */
-export const annotations = pgTable("annotations", {
-	id: text("id").primaryKey(),
-	workspaceId: text("workspace_id")
-		.notNull()
-		.references(() => workspaces.id, { onDelete: "cascade" }),
-	/** rect | label */
-	kind: text("kind").notNull().default("rect"),
-	label: text("label"),
-	x: integer("x").notNull().default(0),
-	y: integer("y").notNull().default(0),
-	width: integer("width").notNull().default(200),
-	height: integer("height").notNull().default(150),
-	color: text("color").notNull().default("#334155"),
-	createdAt: timestamp("created_at").defaultNow(),
-});
+export const annotations = pgTable(
+	"annotations",
+	{
+		id: text("id").primaryKey(),
+		workspaceId: text("workspace_id")
+			.notNull()
+			.references(() => workspaces.id, { onDelete: "cascade" }),
+		/** rect | label */
+		kind: text("kind").notNull().default("rect"),
+		label: text("label"),
+		x: integer("x").notNull().default(0),
+		y: integer("y").notNull().default(0),
+		width: integer("width").notNull().default(200),
+		height: integer("height").notNull().default(150),
+		color: text("color").notNull().default("#334155"),
+		createdAt: timestamp("created_at").defaultNow(),
+	},
+	(table) => ({
+		workspaceIdx: index("annotations_workspace_idx").on(table.workspaceId),
+	}),
+);
