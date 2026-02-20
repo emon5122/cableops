@@ -1,4 +1,4 @@
-import type { ConnectionRow, DeviceRow, DeviceType, PortConfigRow } from "@/lib/topology-types"
+import type { ConnectionRow, DeviceRow, DeviceType, InterfaceRow } from "@/lib/topology-types"
 import { DEVICE_TYPE_LABELS, negotiatedSpeed } from "@/lib/topology-types"
 import { ArrowLeftRight, Cable, Layers, Monitor, Trash2, Zap } from "lucide-react"
 import { useMemo } from "react"
@@ -6,7 +6,7 @@ import { useMemo } from "react"
 interface ConnectionsTableProps {
 	connections: ConnectionRow[]
 	devices: DeviceRow[]
-	portConfigs: PortConfigRow[]
+	portConfigs: InterfaceRow[]
 	onDelete: (id: string) => void
 	highlightedConnectionId: string | null
 	onHighlight: (id: string | null) => void

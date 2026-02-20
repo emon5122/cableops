@@ -1,9 +1,9 @@
 import {
-	boolean,
-	integer,
-	pgTable,
-	text,
-	timestamp,
+    boolean,
+    integer,
+    pgTable,
+    text,
+    timestamp,
 } from "drizzle-orm/pg-core"
 
 /* ═══════════════════════════════════════════════════
@@ -85,20 +85,8 @@ export const devices = pgTable("devices", {
 	positionX: integer("position_x").notNull().default(100),
 	positionY: integer("position_y").notNull().default(100),
 	maxSpeed: text("max_speed"),
-	/** Single management IP for L2 devices (switch, AP) */
-	managementIp: text("management_ip"),
-	/** NAT enabled — only for L3 devices (router, firewall) */
-	natEnabled: boolean("nat_enabled").default(false),
-	/** Default gateway — endpoint devices */
-	gateway: text("gateway"),
-	/** DHCP server mode — routers/servers */
-	dhcpEnabled: boolean("dhcp_enabled").default(false),
-	dhcpRangeStart: text("dhcp_range_start"),
-	dhcpRangeEnd: text("dhcp_range_end"),
-	/** WiFi SSID — routers / access-points */
-	ssid: text("ssid"),
-	/** WiFi password — routers / access-points */
-	wifiPassword: text("wifi_password"),
+	/** Can this device forward packets between interfaces? (routers: always, PCs: optional) */
+	ipForwarding: boolean("ip_forwarding").default(false),
 	createdAt: timestamp("created_at").defaultNow(),
 })
 
@@ -121,7 +109,12 @@ export const connections = pgTable("connections", {
 	createdAt: timestamp("created_at").defaultNow(),
 })
 
-export const portConfigs = pgTable("port_configs", {
+/**
+ * Network interfaces — per-port configuration including IP, DHCP, WiFi, NAT.
+ * Replaces the old port_configs + device-level networking fields.
+ * Port 0 = management/loopback interface (for L2 switches, APs).
+ */
+export const interfaces = pgTable("interfaces", {
 	id: text("id").primaryKey(),
 	deviceId: text("device_id")
 		.notNull()
@@ -138,6 +131,38 @@ export const portConfigs = pgTable("port_configs", {
 	portMode: text("port_mode"),
 	/** Port role: uplink (WAN) | downlink (LAN) — determines traffic direction */
 	portRole: text("port_role"),
+	/** DHCP server on this interface */
+	dhcpEnabled: boolean("dhcp_enabled").default(false),
+	dhcpRangeStart: text("dhcp_range_start"),
+	dhcpRangeEnd: text("dhcp_range_end"),
+	/** WiFi SSID broadcast from this interface */
+	ssid: text("ssid"),
+	/** WiFi password for this interface */
+	wifiPassword: text("wifi_password"),
+	/** NAT masquerade on this interface (typically the outside/WAN interface) */
+	natEnabled: boolean("nat_enabled").default(false),
+	/** Default gateway IP reachable via this interface */
+	gateway: text("gateway"),
+	createdAt: timestamp("created_at").defaultNow(),
+})
+
+/**
+ * Static routes — per-device routing table entries.
+ */
+export const routes = pgTable("routes", {
+	id: text("id").primaryKey(),
+	deviceId: text("device_id")
+		.notNull()
+		.references(() => devices.id, { onDelete: "cascade" }),
+	/** Destination network in CIDR, e.g. "0.0.0.0/0" for default route */
+	destination: text("destination").notNull(),
+	/** Next-hop IP address */
+	nextHop: text("next_hop").notNull(),
+	/** Egress interface port number (optional — auto-resolved if null) */
+	interfacePort: integer("interface_port"),
+	/** Route metric / priority (lower = preferred) */
+	metric: integer("metric").notNull().default(100),
+	createdAt: timestamp("created_at").defaultNow(),
 })
 
 /**

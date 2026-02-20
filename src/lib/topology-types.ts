@@ -361,86 +361,27 @@ export type PortMode = (typeof PORT_MODES)[number]
 export const PORT_ROLES = ["uplink", "downlink"] as const
 export type PortRole = (typeof PORT_ROLES)[number]
 
-/* ── Data models (mirror DB rows) ── */
+/* ── Data models (inferred from Drizzle schema) ── */
 
-export interface WorkspaceRow {
-	id: string
-	name: string
-	ownerId: string
-	createdAt: Date | null
-}
+import {
+	annotations,
+	connections,
+	devices,
+	interfaces,
+	routes,
+	workspaces,
+} from "@/db/schema"
+import type { InferSelectModel } from "drizzle-orm"
 
-export interface DeviceRow {
-	id: string
-	workspaceId: string
-	name: string
-	deviceType: string
-	color: string
-	portCount: number
-	positionX: number
-	positionY: number
-	maxSpeed: string | null
-	/** Single management IP for L2 devices (switch, AP) */
-	managementIp: string | null
-	/** NAT enabled — only meaningful for L3 devices (router, firewall) */
-	natEnabled: boolean | null
-	/** Default gateway IP — for endpoint devices */
-	gateway: string | null
-	/** DHCP server enabled — for routers/servers */
-	dhcpEnabled: boolean | null
-	/** DHCP pool start address */
-	dhcpRangeStart: string | null
-	/** DHCP pool end address */
-	dhcpRangeEnd: string | null
-	/** WiFi SSID — for routers / access-points with wifiHost */
-	ssid: string | null
-	/** WiFi password — for routers / access-points with wifiHost */
-	wifiPassword: string | null
-	createdAt: Date | null
-}
+export type WorkspaceRow = InferSelectModel<typeof workspaces>
+export type DeviceRow = InferSelectModel<typeof devices>
+export type ConnectionRow = InferSelectModel<typeof connections>
+export type InterfaceRow = InferSelectModel<typeof interfaces>
+export type RouteRow = InferSelectModel<typeof routes>
+export type AnnotationRow = InferSelectModel<typeof annotations>
 
-export interface ConnectionRow {
-	id: string
-	workspaceId: string
-	deviceAId: string
-	portA: number
-	deviceBId: string
-	portB: number
-	speed: string | null
-	/** "wired" | "wifi" — determines visual representation */
-	connectionType: string | null
-	createdAt: Date | null
-}
-
-export interface PortConfigRow {
-	id: string
-	deviceId: string
-	portNumber: number
-	alias: string | null
-	reserved: boolean
-	reservedLabel: string | null
-	speed: string | null
-	vlan: number | null
-	ipAddress: string | null
-	macAddress: string | null
-	/** Port mode: access (single VLAN), trunk (tagged), hybrid — only for L2 devices */
-	portMode: string | null
-	/** Port role: uplink (WAN) | downlink (LAN) — determines traffic direction */
-	portRole: string | null
-}
-
-export interface AnnotationRow {
-	id: string
-	workspaceId: string
-	kind: string
-	label: string | null
-	x: number
-	y: number
-	width: number
-	height: number
-	color: string
-	createdAt: Date | null
-}
+/** @deprecated Use InterfaceRow instead */
+export type PortConfigRow = InterfaceRow
 
 /* ── Topology canvas helpers ── */
 
@@ -680,9 +621,11 @@ export function sameSubnet(a: string, b: string): boolean {
 }
 
 /**
- * Walk the L2 broadcast domain from a given port, returning all device IDs
- * reachable without crossing an L3 boundary (router/firewall/load-balancer).
- * Returns the set of device IDs in the same broadcast domain.
+ * Walk the L2 broadcast domain from a given device, returning all device IDs
+ * reachable without crossing an L3 boundary.
+ *
+ * **LEGACY — device-level walk.** Use `getNetworkSegment()` for port-accurate
+ * segment detection that handles multi-homed endpoints correctly.
  */
 export function getBroadcastDomain(
 	startDeviceId: string,
@@ -698,9 +641,7 @@ export function getBroadcastDomain(
 		const dev = devices.find((d) => d.id === devId)
 		if (!dev) continue
 		const caps = DEVICE_CAPABILITIES[dev.deviceType as DeviceType]
-		// Don't traverse through L3 devices — they terminate the broadcast domain
-		// (but we DO include the L3 device itself if it's the starting point or an edge)
-		if (devId !== startDeviceId && caps && (caps.layer === 3)) continue
+		if (devId !== startDeviceId && caps && caps.layer === 3) continue
 		const conns = connections.filter(
 			(c) => c.deviceAId === devId || c.deviceBId === devId,
 		)
@@ -712,10 +653,479 @@ export function getBroadcastDomain(
 	return domain
 }
 
+/* ══════════════════════════════════════════════════════════════════════════════
+ *  NETWORK RULE ENGINE — Port-level segment detection + reachability analysis
+ * ══════════════════════════════════════════════════════════════════════════════ */
+
+/** A port on a specific device */
+export interface SegmentPort {
+	deviceId: string
+	portNumber: number
+}
+
+/** A discovered L2 network segment */
+export interface NetworkSegment {
+	/** Unique key like "seg-0" */
+	id: string
+	/** All device:port pairs in this L2 segment */
+	ports: SegmentPort[]
+	/** The L3 gateway port (router/firewall interface) if one exists */
+	gateway: {
+		deviceId: string
+		portNumber: number
+		ip: string
+		cidr: number
+		network: number
+		mask: number
+	} | null
+	/** Computed subnet string like "192.168.0.0/24", derived from gateway or first IP */
+	subnet: string | null
+}
+
+/** Detected issue in the network topology */
+export interface NetworkIssue {
+	severity: "error" | "warning" | "info"
+	deviceId: string
+	portNumber?: number
+	message: string
+	type:
+		| "subnet_mismatch"
+		| "no_gateway"
+		| "duplicate_ip"
+		| "unreachable_segment"
+		| "no_ip"
+		| "no_dhcp_match"
+		| "needs_forwarding"
+}
+
+export interface NetworkAnalysis {
+	segments: NetworkSegment[]
+	issues: NetworkIssue[]
+}
+
 /**
- * Find the gateway subnet for a port by walking the broadcast domain and
- * looking for an L3 device (router/firewall/LB) interface with an IP.
- * Returns the subnet info if found, or null.
+ * Is a device type transparent at L2? (all ports = same broadcast domain)
+ * L1 (hub, patch-panel) and L2 (switch, AP, modem) devices forward frames
+ * across all ports. Everything else (routers, endpoints, cloud) has per-port
+ * segment boundaries.
+ */
+function isL2Transparent(layer: DeviceCapabilities["layer"]): boolean {
+	return layer === 1 || layer === 2
+}
+
+/**
+ * Discover the L2 network segment reachable from a specific device:port.
+ *
+ * Walk rules:
+ * - L1/L2 devices (switch/hub/AP): ALL ports in the same segment → traverse every connection
+ * - L3 devices (router/firewall/LB): each port is a segment edge → DON'T cross to other ports
+ * - Endpoints (PC/server/etc.): each port is a segment edge → DON'T cross to other ports
+ * - Cloud: each port is a segment edge
+ *
+ * This means a multi-homed PC with port 1 on 192.168.0.0/24 and port 2 on
+ * 10.0.0.0/31 is correctly in TWO separate segments.
+ */
+export function getNetworkSegment(
+	deviceId: string,
+	portNumber: number,
+	connections: ConnectionRow[],
+	devices: DeviceRow[],
+	portConfigs: PortConfigRow[],
+): NetworkSegment {
+	const visited = new Set<string>() // "deviceId:portNumber"
+	const segmentPorts: SegmentPort[] = []
+	let gateway: NetworkSegment["gateway"] = null
+
+	const tryEnqueue = (queue: SegmentPort[], devId: string, port: number) => {
+		const key = `${devId}:${port}`
+		if (!visited.has(key)) queue.push({ deviceId: devId, portNumber: port })
+	}
+
+	const queue: SegmentPort[] = [{ deviceId, portNumber }]
+
+	while (queue.length > 0) {
+		const current = queue.shift()!
+		const key = `${current.deviceId}:${current.portNumber}`
+		if (visited.has(key)) continue
+		visited.add(key)
+		segmentPorts.push(current)
+
+		const dev = devices.find((d) => d.id === current.deviceId)
+		if (!dev) continue
+		const caps = DEVICE_CAPABILITIES[dev.deviceType as DeviceType]
+		if (!caps) continue
+
+		// Check if this port is a gateway interface (L3 device with IP on this port)
+		if (caps.canBeGateway && !gateway) {
+			const pc = portConfigs.find(
+				(p) =>
+					p.deviceId === current.deviceId &&
+					p.portNumber === current.portNumber &&
+					p.ipAddress,
+			)
+			if (pc?.ipAddress) {
+				const parsed = parseIp(pc.ipAddress)
+				if (parsed) {
+					gateway = {
+						deviceId: current.deviceId,
+						portNumber: current.portNumber,
+						ip: pc.ipAddress,
+						cidr: parsed.cidr,
+						network: parsed.network,
+						mask: parsed.mask,
+					}
+				}
+			}
+		}
+
+		// Find the connection from this specific port
+		const conn = connections.find(
+			(c) =>
+				(c.deviceAId === current.deviceId && c.portA === current.portNumber) ||
+				(c.deviceBId === current.deviceId && c.portB === current.portNumber),
+		)
+		if (!conn) continue
+
+		const peerId =
+			conn.deviceAId === current.deviceId ? conn.deviceBId : conn.deviceAId
+		const peerPort =
+			conn.deviceAId === current.deviceId ? conn.portB : conn.portA
+
+		// Add the peer's specific port to this segment
+		tryEnqueue(queue, peerId, peerPort)
+
+		// If the peer is L2-transparent, ALL its other connected ports are also
+		// part of this same segment (switch/hub bridge traffic between ports)
+		const peerDev = devices.find((d) => d.id === peerId)
+		if (peerDev) {
+			const peerCaps = DEVICE_CAPABILITIES[peerDev.deviceType as DeviceType]
+			if (peerCaps && isL2Transparent(peerCaps.layer)) {
+				for (const c of connections) {
+					if (c.deviceAId === peerId) tryEnqueue(queue, peerId, c.portA)
+					if (c.deviceBId === peerId) tryEnqueue(queue, peerId, c.portB)
+				}
+			}
+		}
+	}
+
+	// Compute subnet from gateway IP, or fall back to first port IP in segment
+	let subnet: string | null = null
+	if (gateway) {
+		subnet = `${ipToString(gateway.network)}/${gateway.cidr}`
+	} else {
+		for (const sp of segmentPorts) {
+			const pc = portConfigs.find(
+				(p) =>
+					p.deviceId === sp.deviceId &&
+					p.portNumber === sp.portNumber &&
+					p.ipAddress,
+			)
+			if (pc?.ipAddress) {
+				const parsed = parseIp(pc.ipAddress)
+				if (parsed) {
+					subnet = `${ipToString(parsed.network)}/${parsed.cidr}`
+					break
+				}
+			}
+		}
+	}
+
+	return { id: "", ports: segmentPorts, gateway, subnet }
+}
+
+/**
+ * Discover ALL distinct network segments in a workspace.
+ * Iterates every connected port and groups them into non-overlapping segments.
+ */
+export function discoverAllSegments(
+	devices: DeviceRow[],
+	connections: ConnectionRow[],
+	portConfigs: PortConfigRow[],
+): NetworkSegment[] {
+	const visited = new Set<string>() // "deviceId:portNumber"
+	const segments: NetworkSegment[] = []
+	let idx = 0
+
+	for (const conn of connections) {
+		for (const [devId, port] of [
+			[conn.deviceAId, conn.portA],
+			[conn.deviceBId, conn.portB],
+		] as [string, number][]) {
+			const key = `${devId}:${port}`
+			if (visited.has(key)) continue
+
+			const seg = getNetworkSegment(devId, port, connections, devices, portConfigs)
+			seg.id = `seg-${idx++}`
+			for (const sp of seg.ports) visited.add(`${sp.deviceId}:${sp.portNumber}`)
+			segments.push(seg)
+		}
+	}
+
+	return segments
+}
+
+/**
+ * Full network analysis: discover segments, validate IPs, check reachability.
+ */
+export function analyzeNetwork(
+	devices: DeviceRow[],
+	connections: ConnectionRow[],
+	portConfigs: PortConfigRow[],
+): NetworkAnalysis {
+	const segments = discoverAllSegments(devices, connections, portConfigs)
+	const issues: NetworkIssue[] = []
+
+	// Lookup: "deviceId:portNumber" → segment
+	const portToSegment = new Map<string, NetworkSegment>()
+	for (const seg of segments) {
+		for (const sp of seg.ports) {
+			portToSegment.set(`${sp.deviceId}:${sp.portNumber}`, seg)
+		}
+	}
+
+	/* ── 1. Subnet mismatch: port IPs must match their segment gateway ── */
+	for (const seg of segments) {
+		if (!seg.gateway) continue
+		const gw = seg.gateway
+
+		for (const sp of seg.ports) {
+			if (sp.deviceId === gw.deviceId && sp.portNumber === gw.portNumber) continue
+
+			const pc = portConfigs.find(
+				(p) =>
+					p.deviceId === sp.deviceId &&
+					p.portNumber === sp.portNumber &&
+					p.ipAddress,
+			)
+			if (!pc?.ipAddress) continue
+
+			const parsed = parseIp(pc.ipAddress)
+			if (!parsed) continue
+
+			if (((parsed.ip & gw.mask) >>> 0) !== gw.network) {
+				const dev = devices.find((d) => d.id === sp.deviceId)
+				const gwDev = devices.find((d) => d.id === gw.deviceId)
+				issues.push({
+					severity: "error",
+					deviceId: sp.deviceId,
+					portNumber: sp.portNumber,
+					message: `${dev?.name ?? "Device"} port ${sp.portNumber} IP ${pc.ipAddress} is not in subnet ${seg.subnet} (gateway: ${gwDev?.name ?? "?"} port ${gw.portNumber})`,
+					type: "subnet_mismatch",
+				})
+			}
+		}
+
+		// Management IPs of L2 devices in this segment
+		const checkedMgmt = new Set<string>()
+		for (const sp of seg.ports) {
+			const dev = devices.find((d) => d.id === sp.deviceId)
+			if (!dev?.managementIp || checkedMgmt.has(dev.id)) continue
+			checkedMgmt.add(dev.id)
+			const caps = DEVICE_CAPABILITIES[dev.deviceType as DeviceType]
+			if (!caps?.managementIp) continue
+
+			const mgmtIp = dev.managementIp.includes("/")
+				? dev.managementIp
+				: `${dev.managementIp}/24`
+			const parsed = parseIp(mgmtIp)
+			if (!parsed) continue
+
+			if (((parsed.ip & gw.mask) >>> 0) !== gw.network) {
+				const gwDev = devices.find((d) => d.id === gw.deviceId)
+				issues.push({
+					severity: "error",
+					deviceId: dev.id,
+					message: `${dev.name} management IP ${dev.managementIp} is not in subnet ${seg.subnet} (gateway: ${gwDev?.name ?? "?"})`,
+					type: "subnet_mismatch",
+				})
+			}
+		}
+	}
+
+	/* ── 2. No gateway: segments with IPs but no L3 device ── */
+	for (const seg of segments) {
+		if (seg.gateway) continue
+		const hasIp = seg.ports.some((sp) =>
+			portConfigs.some(
+				(pc) =>
+					pc.deviceId === sp.deviceId &&
+					pc.portNumber === sp.portNumber &&
+					pc.ipAddress,
+			),
+		)
+		if (!hasIp) continue
+
+		const names = [
+			...new Set(
+				seg.ports
+					.map((sp) => devices.find((d) => d.id === sp.deviceId)?.name)
+					.filter(Boolean),
+			),
+		]
+		issues.push({
+			severity: "warning",
+			deviceId: seg.ports[0].deviceId,
+			message: `Segment with ${names.join(", ")} has IPs but no L3 gateway — no routing to other segments`,
+			type: "no_gateway",
+		})
+	}
+
+	/* ── 3. Duplicate IPs within a segment ── */
+	for (const seg of segments) {
+		const ips = new Map<string, SegmentPort>()
+		for (const sp of seg.ports) {
+			const pc = portConfigs.find(
+				(p) =>
+					p.deviceId === sp.deviceId &&
+					p.portNumber === sp.portNumber &&
+					p.ipAddress,
+			)
+			if (!pc?.ipAddress) continue
+			const plain = pc.ipAddress.split("/")[0]
+			const existing = ips.get(plain)
+			if (existing) {
+				const d1 = devices.find((d) => d.id === existing.deviceId)
+				const d2 = devices.find((d) => d.id === sp.deviceId)
+				issues.push({
+					severity: "error",
+					deviceId: sp.deviceId,
+					portNumber: sp.portNumber,
+					message: `Duplicate IP ${plain}: ${d1?.name ?? "?"} P${existing.portNumber} and ${d2?.name ?? "?"} P${sp.portNumber}`,
+					type: "duplicate_ip",
+				})
+			} else {
+				ips.set(plain, sp)
+			}
+		}
+	}
+
+	/* ── 4. Cross-segment reachability ── */
+	if (segments.length > 1) {
+		// Build graph: two segments are connected if the SAME L3 device has a
+		// port in each (it can route between them)
+		const adj = new Map<string, Set<string>>()
+		for (const s of segments) adj.set(s.id, new Set())
+
+		for (let i = 0; i < segments.length; i++) {
+			for (let j = i + 1; j < segments.length; j++) {
+				const a = segments[i]
+				const b = segments[j]
+				const l3InA = new Set(
+					a.ports
+						.filter((sp) => {
+							const d = devices.find((dd) => dd.id === sp.deviceId)
+							if (!d) return false
+							const c = DEVICE_CAPABILITIES[d.deviceType as DeviceType]
+							return c && (c.canBeGateway || c.layer === 3)
+						})
+						.map((sp) => sp.deviceId),
+				)
+				const bridged = b.ports.some((sp) => {
+					const d = devices.find((dd) => dd.id === sp.deviceId)
+					if (!d) return false
+					const c = DEVICE_CAPABILITIES[d.deviceType as DeviceType]
+					return c && (c.canBeGateway || c.layer === 3) && l3InA.has(sp.deviceId)
+				})
+				if (bridged) {
+					adj.get(a.id)!.add(b.id)
+					adj.get(b.id)!.add(a.id)
+				}
+			}
+		}
+
+		// Find isolated groups via BFS
+		const seen = new Set<string>()
+		const groups: string[][] = []
+		for (const seg of segments) {
+			if (seen.has(seg.id)) continue
+			const group: string[] = []
+			const q = [seg.id]
+			while (q.length > 0) {
+				const cur = q.shift()!
+				if (seen.has(cur)) continue
+				seen.add(cur)
+				group.push(cur)
+				for (const nb of adj.get(cur) ?? []) {
+					if (!seen.has(nb)) q.push(nb)
+				}
+			}
+			groups.push(group)
+		}
+
+		if (groups.length > 1) {
+			for (let g = 1; g < groups.length; g++) {
+				const segNames = groups[g]
+					.map((id) => segments.find((s) => s.id === id)?.subnet ?? id)
+					.join(", ")
+				issues.push({
+					severity: "warning",
+					deviceId:
+						segments.find((s) => s.id === groups[g][0])?.ports[0]?.deviceId ?? "",
+					message: `Segments [${segNames}] are isolated — no L3 device routes them to other networks`,
+					type: "unreachable_segment",
+				})
+			}
+		}
+	}
+
+	/* ── 5. Multi-homed endpoint warning ── */
+	for (const dev of devices) {
+		const caps = DEVICE_CAPABILITIES[dev.deviceType as DeviceType]
+		if (!caps || caps.canBeGateway || isL2Transparent(caps.layer)) continue
+
+		const devSegs = new Set<string>()
+		for (const conn of connections) {
+			let port: number | null = null
+			if (conn.deviceAId === dev.id) port = conn.portA
+			else if (conn.deviceBId === dev.id) port = conn.portB
+			if (port === null) continue
+			const seg = portToSegment.get(`${dev.id}:${port}`)
+			if (seg) devSegs.add(seg.id)
+		}
+
+		if (devSegs.size > 1) {
+			const subs = Array.from(devSegs)
+				.map((sid) => segments.find((s) => s.id === sid)?.subnet ?? "?")
+				.join(" ↔ ")
+			issues.push({
+				severity: "info",
+				deviceId: dev.id,
+				message: `${dev.name} bridges segments [${subs}] — requires IP forwarding + static routes for cross-segment traffic`,
+				type: "needs_forwarding",
+			})
+		}
+	}
+
+	/* ── 6. DHCP range vs. port subnet ── */
+	for (const iface of portConfigs) {
+		if (!iface.dhcpEnabled || !iface.dhcpRangeStart || !iface.dhcpRangeEnd) continue
+		const start = parseIpPlain(iface.dhcpRangeStart)
+		if (start === null) continue
+
+		/* Check if this interface's own IP subnet matches the DHCP range */
+		if (!iface.ipAddress) continue
+		const parsed = parseIp(iface.ipAddress)
+		if (!parsed) continue
+
+		if (((start & parsed.mask) >>> 0) !== parsed.network) {
+			const dev = devices.find((d) => d.id === iface.deviceId)
+			issues.push({
+				severity: "warning",
+				deviceId: iface.deviceId,
+				portNumber: iface.portNumber,
+				message: `${dev?.name ?? "Device"} port ${iface.portNumber} subnet ${ipToString(parsed.network)}/${parsed.cidr} doesn't match DHCP range ${iface.dhcpRangeStart}–${iface.dhcpRangeEnd}`,
+				type: "no_dhcp_match",
+			})
+		}
+	}
+
+	return { segments, issues }
+}
+
+/**
+ * Find the gateway subnet for a port using the segment engine.
+ * Returns the L3 device interface (IP/subnet) that defines the subnet
+ * for the segment containing deviceId:portNumber.
  */
 export function getGatewaySubnet(
 	deviceId: string,
@@ -723,51 +1133,31 @@ export function getGatewaySubnet(
 	devices: DeviceRow[],
 	connections: ConnectionRow[],
 	portConfigs: PortConfigRow[],
-): { subnet: string; gatewayIp: string; gatewayDeviceName: string; network: number; cidr: number; mask: number } | null {
-	const domain = getBroadcastDomain(deviceId, connections, devices)
-
-	// Look for L3 device (gateway) at the edge of this broadcast domain
-	for (const devId of domain) {
-		const dev = devices.find((d) => d.id === devId)
-		if (!dev) continue
-		const caps = DEVICE_CAPABILITIES[dev.deviceType as DeviceType]
-		if (!caps || !caps.canBeGateway) continue
-
-		// Find the specific L3 port that connects INTO this broadcast domain
-		// by looking at connections between this L3 device and other devices in the domain
-		const connsIntoDomain = connections.filter((c) => {
-			if (c.deviceAId === devId) {
-				return domain.has(c.deviceBId) && c.deviceBId !== devId
-			}
-			if (c.deviceBId === devId) {
-				return domain.has(c.deviceAId) && c.deviceAId !== devId
-			}
-			return false
-		})
-
-		for (const conn of connsIntoDomain) {
-			const l3Port = conn.deviceAId === devId ? conn.portA : conn.portB
-			const pc = portConfigs.find((p) => p.deviceId === devId && p.portNumber === l3Port && p.ipAddress)
-			if (!pc) continue
-			const parsed = parseIp(pc.ipAddress!)
-			if (!parsed) continue
-			return {
-				subnet: `${ipToString(parsed.network)}/${parsed.cidr}`,
-				gatewayIp: pc.ipAddress!,
-				gatewayDeviceName: dev.name,
-				network: parsed.network,
-				cidr: parsed.cidr,
-				mask: parsed.mask,
-			}
-		}
+): {
+	subnet: string
+	gatewayIp: string
+	gatewayDeviceName: string
+	network: number
+	cidr: number
+	mask: number
+} | null {
+	const seg = getNetworkSegment(deviceId, portNumber, connections, devices, portConfigs)
+	if (!seg.gateway) return null
+	const gwDev = devices.find((d) => d.id === seg.gateway!.deviceId)
+	return {
+		subnet: seg.subnet!,
+		gatewayIp: seg.gateway.ip,
+		gatewayDeviceName: gwDev?.name ?? "Gateway",
+		network: seg.gateway.network,
+		cidr: seg.gateway.cidr,
+		mask: seg.gateway.mask,
 	}
-	return null
 }
 
 /**
  * Validate whether a proposed IP address belongs to the correct subnet
- * for the broadcast domain the port is connected to.
- * Returns null if valid (or no gateway found), or an error message.
+ * for the segment the port is in.
+ * Returns `{ valid, warning, gatewaySubnet }`.
  */
 export function validatePortIp(
 	proposedIp: string,
@@ -781,13 +1171,12 @@ export function validatePortIp(
 	if (!parsed) return { valid: false, warning: "Invalid IP/CIDR format", gatewaySubnet: null }
 
 	const gw = getGatewaySubnet(deviceId, portNumber, devices, connections, portConfigs)
-	if (!gw) return { valid: true, warning: null, gatewaySubnet: null } // No gateway found — can't validate
+	if (!gw) return { valid: true, warning: null, gatewaySubnet: null }
 
-	// Check if the proposed IP is in the same subnet as the gateway
 	if (((parsed.ip & gw.mask) >>> 0) !== gw.network) {
 		return {
 			valid: false,
-			warning: `IP ${proposedIp} is not in the gateway subnet ${gw.subnet} (via ${gw.gatewayDeviceName})`,
+			warning: `IP ${proposedIp} is not in subnet ${gw.subnet} (via ${gw.gatewayDeviceName})`,
 			gatewaySubnet: gw.subnet,
 		}
 	}
@@ -807,11 +1196,11 @@ function parseIpPlain(ip: string): number | null {
 }
 
 /**
- * Get the next available IP from a DHCP host's range.
- * Scans the host device's dhcpRangeStart..dhcpRangeEnd, skipping IPs
- * already assigned to any connected client (WiFi or wired).
+ * Get the next available IP from a DHCP interface's range.
+ * Looks at the interface on `hostPortNumber` of the host device for DHCP config.
+ * Scans dhcpRangeStart..dhcpRangeEnd, skipping IPs already assigned to connected clients.
  *
- * If `gatewayPortIp` is provided (the host's port IP with CIDR, e.g. "192.168.68.1/24"),
+ * If the host interface has an IP with CIDR (e.g. "192.168.68.1/24"),
  * the DHCP range must fall within that subnet. Otherwise assignment is skipped.
  *
  * Returns an IP string with CIDR notation like "192.168.1.101/24"
@@ -819,21 +1208,23 @@ function parseIpPlain(ip: string): number | null {
  */
 export function getNextDhcpIp(
 	hostDevice: DeviceRow,
+	hostPortNumber: number,
 	connections: ConnectionRow[],
-	devices: DeviceRow[],
-	portConfigs: PortConfigRow[],
-	gatewayPortIp?: string | null,
+	portConfigs: InterfaceRow[],
 ): string | null {
-	if (!hostDevice.dhcpEnabled || !hostDevice.dhcpRangeStart || !hostDevice.dhcpRangeEnd) return null
+	const hostIface = portConfigs.find(
+		(p) => p.deviceId === hostDevice.id && p.portNumber === hostPortNumber,
+	)
+	if (!hostIface?.dhcpEnabled || !hostIface.dhcpRangeStart || !hostIface.dhcpRangeEnd) return null
 
-	const start = parseIpPlain(hostDevice.dhcpRangeStart)
-	const end = parseIpPlain(hostDevice.dhcpRangeEnd)
+	const start = parseIpPlain(hostIface.dhcpRangeStart)
+	const end = parseIpPlain(hostIface.dhcpRangeEnd)
 	if (start === null || end === null || start > end) return null
 
-	/* If a gateway port IP is given, verify DHCP range is in the same subnet */
+	/* If the host interface has an IP, verify DHCP range is in the same subnet */
 	let cidr = 24 /* default */
-	if (gatewayPortIp) {
-		const gw = parseIp(gatewayPortIp)
+	if (hostIface.ipAddress) {
+		const gw = parseIp(hostIface.ipAddress)
 		if (!gw) return null
 		cidr = gw.cidr
 		const mask = cidr > 0 ? (~0 << (32 - cidr)) >>> 0 : 0

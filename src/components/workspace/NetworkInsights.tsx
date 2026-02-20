@@ -1,14 +1,17 @@
-import type { ConnectionRow, DeviceRow, DeviceType, PortConfigRow } from "@/lib/topology-types"
-import { DEVICE_CAPABILITIES, DEVICE_TYPE_LABELS, ipToString, parseIp, sameSubnet } from "@/lib/topology-types"
+import type { ConnectionRow, DeviceRow, DeviceType, InterfaceRow, NetworkIssue } from "@/lib/topology-types"
+import { DEVICE_CAPABILITIES, DEVICE_TYPE_LABELS, analyzeNetwork, ipToString, parseIp, sameSubnet } from "@/lib/topology-types"
 import {
+	AlertTriangle,
 	ArrowRight,
 	CircleDot,
 	GitBranch,
 	Globe,
+	Info,
 	Layers,
 	Network,
 	Radio,
 	Search,
+	ShieldAlert,
 	Wifi,
 } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
@@ -16,7 +19,7 @@ import { useCallback, useMemo, useState } from "react"
 interface NetworkInsightsProps {
 	devices: DeviceRow[]
 	connections: ConnectionRow[]
-	portConfigs: PortConfigRow[]
+	portConfigs: InterfaceRow[]
 }
 
 type InsightTab = "network" | "diagnostics"
@@ -108,6 +111,37 @@ interface PingResult {
 	totalLatency: number
 }
 
+/* ── Issue display helper ── */
+
+function IssueRow({ issue, devices }: { issue: NetworkIssue; devices: DeviceRow[] }) {
+	const dev = devices.find((d) => d.id === issue.deviceId)
+	const color =
+		issue.severity === "error"
+			? "text-red-400 bg-red-500/10 border-red-500/20"
+			: issue.severity === "warning"
+				? "text-amber-400 bg-amber-500/10 border-amber-500/20"
+				: "text-blue-400 bg-blue-500/10 border-blue-500/20"
+	const Icon =
+		issue.severity === "error"
+			? ShieldAlert
+			: issue.severity === "warning"
+				? AlertTriangle
+				: Info
+
+	return (
+		<div className={`flex items-start gap-2 px-3 py-2 rounded-lg border text-[11px] ${color}`}>
+			<Icon size={13} className="shrink-0 mt-0.5" />
+			<div className="flex-1 min-w-0">
+				<span>{issue.message}</span>
+				{dev && (
+					<span className="ml-1.5 text-[9px] opacity-60">[{dev.name}]</span>
+				)}
+			</div>
+			<span className="text-[8px] uppercase tracking-wider opacity-50 shrink-0">{issue.type.replace(/_/g, " ")}</span>
+		</div>
+	)
+}
+
 export default function NetworkInsights({
 	devices,
 	connections,
@@ -150,65 +184,15 @@ export default function NetworkInsights({
 		[selectedVlanPorts],
 	)
 
-	/* ── Subnet data (L3 interfaces define subnets) ── */
-	const subnetMap = useMemo(() => {
-		const m = new Map<string, {
-			network: string
-			cidr: number
-			mask: string
-			gatewayIp: string | null
-			gatewayDeviceId: string | null
-			ports: { deviceId: string; portNumber: number; ip: string; alias: string | null; isGateway: boolean }[]
-		}>()
-		for (const pc of portConfigs) {
-			if (!pc.ipAddress) continue
-			const parsed = parseIp(pc.ipAddress)
-			if (!parsed) continue
-			const key = `${ipToString(parsed.network)}/${parsed.cidr}`
-			const dev = devices.find((d) => d.id === pc.deviceId)
-			const caps = dev ? (DEVICE_CAPABILITIES[dev.deviceType as DeviceType] ?? DEVICE_CAPABILITIES.pc) : DEVICE_CAPABILITIES.pc
-			const isGateway = caps.canBeGateway
+	/* ── Network analysis (segment engine) ── */
+	const analysis = useMemo(
+		() => analyzeNetwork(devices, connections, portConfigs),
+		[devices, connections, portConfigs],
+	)
 
-			const existing = m.get(key) ?? {
-				network: ipToString(parsed.network),
-				cidr: parsed.cidr,
-				mask: ipToString(parsed.mask),
-				gatewayIp: null,
-				gatewayDeviceId: null,
-				ports: [],
-			}
-			if (isGateway && !existing.gatewayIp) {
-				existing.gatewayIp = pc.ipAddress
-				existing.gatewayDeviceId = pc.deviceId
-			}
-			existing.ports.push({ deviceId: pc.deviceId, portNumber: pc.portNumber, ip: pc.ipAddress, alias: pc.alias, isGateway })
-			m.set(key, existing)
-		}
-
-		/* Also place L2 management IPs */
-		for (const dev of devices) {
-			if (!dev.managementIp) continue
-			const parsed = parseIp(dev.managementIp.includes("/") ? dev.managementIp : `${dev.managementIp}/24`)
-			if (!parsed) continue
-			const key = `${ipToString(parsed.network)}/${parsed.cidr}`
-			const existing = m.get(key)
-			if (existing) {
-				const alreadyListed = existing.ports.some((p) => p.deviceId === dev.id && p.ip === dev.managementIp)
-				if (!alreadyListed) {
-					existing.ports.push({
-						deviceId: dev.id,
-						portNumber: 0,
-						ip: dev.managementIp.includes("/") ? dev.managementIp : `${dev.managementIp}/24`,
-						alias: "mgmt",
-						isGateway: false,
-					})
-				}
-			}
-		}
-		return m
-	}, [portConfigs, devices])
-
-	const subnetKeys = useMemo(() => Array.from(subnetMap.keys()).sort(), [subnetMap])
+	const errors = useMemo(() => analysis.issues.filter((i) => i.severity === "error"), [analysis])
+	const warnings = useMemo(() => analysis.issues.filter((i) => i.severity === "warning"), [analysis])
+	const infos = useMemo(() => analysis.issues.filter((i) => i.severity === "info"), [analysis])
 
 	/* ── Trace results ── */
 	const traceResult = useMemo(() => {
@@ -355,89 +339,153 @@ export default function NetworkInsights({
 			{/* ═══════════ NETWORK MAP TAB ═══════════ */}
 			{tab === "network" && (
 				<div className="space-y-6">
-					{/* ── Subnet Section ── */}
+					{/* ── Issues banner ── */}
+					{analysis.issues.length > 0 && (
+						<section>
+							<h3 className="text-xs font-bold text-(--app-text-muted) uppercase tracking-wider flex items-center gap-1.5 mb-3">
+								<ShieldAlert size={12} /> Issues ({analysis.issues.length})
+							</h3>
+							<div className="space-y-1.5">
+								{errors.map((issue, idx) => (
+									<IssueRow key={`e-${idx}`} issue={issue} devices={devices} />
+								))}
+								{warnings.map((issue, idx) => (
+									<IssueRow key={`w-${idx}`} issue={issue} devices={devices} />
+								))}
+								{infos.map((issue, idx) => (
+									<IssueRow key={`i-${idx}`} issue={issue} devices={devices} />
+								))}
+							</div>
+						</section>
+					)}
+
+					{/* ── Segments Section ── */}
 					<section>
 						<h3 className="text-xs font-bold text-(--app-text-muted) uppercase tracking-wider flex items-center gap-1.5 mb-3">
-							<Globe size={12} /> Subnets
+							<Globe size={12} /> Network Segments
 						</h3>
 
-						{subnetKeys.length === 0 ? (
+						{analysis.segments.length === 0 ? (
 							<div className="text-center py-8 text-(--app-text-muted) bg-(--app-surface) rounded-lg border border-(--app-border)">
 								<Globe size={28} className="mx-auto mb-2 opacity-30" />
-								<p className="text-sm">No subnets configured</p>
+								<p className="text-sm">No network segments</p>
 								<p className="text-[10px] mt-0.5 text-(--app-text-dim)">
-									Assign IP addresses (CIDR) to router interfaces to define subnets
+									Connect devices and assign IP addresses to discover segments
 								</p>
 							</div>
 						) : (
 							<div className="space-y-3">
 								{/* Summary strip */}
 								<div className="flex items-center gap-4 text-xs text-(--app-text-muted)">
-									<span><strong className="text-(--app-text)">{subnetKeys.length}</strong> subnet{subnetKeys.length !== 1 ? "s" : ""}</span>
-									<span><strong className="text-(--app-text)">{Array.from(subnetMap.values()).reduce((sum, s) => sum + s.ports.length, 0)}</strong> IPs assigned</span>
-									<span><strong className="text-(--app-text)">{new Set(Array.from(subnetMap.values()).flatMap((s) => s.ports.map((p) => p.deviceId))).size}</strong> devices</span>
+									<span><strong className="text-(--app-text)">{analysis.segments.length}</strong> segment{analysis.segments.length !== 1 ? "s" : ""}</span>
+									<span><strong className="text-(--app-text)">{analysis.segments.filter((s) => s.gateway).length}</strong> with gateway</span>
+									<span><strong className="text-(--app-text)">{new Set(analysis.segments.flatMap((s) => s.ports.map((p) => p.deviceId))).size}</strong> devices</span>
 								</div>
 
-								{subnetKeys.map((key) => {
-									const info = subnetMap.get(key)!
-									const parsed = parseIp(`${info.network}/${info.cidr}`)
+								{analysis.segments.map((seg) => {
+									const parsed = seg.subnet ? parseIp(`${seg.subnet.split("/")[0]}/${seg.subnet.split("/")[1]}`) : null
 									const broadcast = parsed ? ipToString((parsed.network | ~parsed.mask) >>> 0) : "—"
-									const maxHosts = info.cidr <= 30 ? 2 ** (32 - info.cidr) - 2 : info.cidr === 31 ? 2 : 1
-									const usedCount = info.ports.length
-									const deviceIds = [...new Set(info.ports.map((p) => p.deviceId))]
-									const gwDev = info.gatewayDeviceId ? devices.find((d) => d.id === info.gatewayDeviceId) : null
+									const maxHosts = parsed ? (parsed.cidr <= 30 ? 2 ** (32 - parsed.cidr) - 2 : parsed.cidr === 31 ? 2 : 1) : 0
+
+									// Gather IPs in this segment
+									const segIps: { deviceId: string; portNumber: number; ip: string; alias: string | null; isGateway: boolean }[] = []
+									for (const sp of seg.ports) {
+										const pc = portConfigs.find(
+											(p) => p.deviceId === sp.deviceId && p.portNumber === sp.portNumber && p.ipAddress,
+										)
+										if (pc?.ipAddress) {
+											const isGw = seg.gateway?.deviceId === sp.deviceId && seg.gateway?.portNumber === sp.portNumber
+											segIps.push({ deviceId: sp.deviceId, portNumber: sp.portNumber, ip: pc.ipAddress, alias: pc.alias, isGateway: isGw })
+										}
+									}
+
+									// Also add management IPs from L2 devices in segment
+									const mgmtIps: typeof segIps = []
+									const seenMgmt = new Set<string>()
+									for (const sp of seg.ports) {
+										const dev = devices.find((d) => d.id === sp.deviceId)
+										if (!dev?.managementIp || seenMgmt.has(dev.id)) continue
+										seenMgmt.add(dev.id)
+										const caps = DEVICE_CAPABILITIES[dev.deviceType as DeviceType]
+										if (!caps?.managementIp) continue
+										mgmtIps.push({ deviceId: dev.id, portNumber: 0, ip: dev.managementIp, alias: "mgmt", isGateway: false })
+									}
+
+									const allIps = [...segIps, ...mgmtIps]
+									const usedCount = allIps.length
+									const deviceIds = [...new Set(seg.ports.map((p) => p.deviceId))]
+									const gwDev = seg.gateway ? devices.find((d) => d.id === seg.gateway!.deviceId) : null
 
 									return (
-										<div key={key} className="bg-(--app-surface) rounded-lg border border-(--app-border) overflow-hidden">
+										<div key={seg.id} className="bg-(--app-surface) rounded-lg border border-(--app-border) overflow-hidden">
 											{/* Header */}
 											<div className="px-3 py-2 border-b border-(--app-border) flex items-center justify-between">
 												<div className="flex items-center gap-2">
 													<Globe size={13} className="text-emerald-400" />
-													<span className="text-sm font-bold font-mono text-(--app-text)">{key}</span>
+													<span className="text-sm font-bold font-mono text-(--app-text)">
+														{seg.subnet ?? "No subnet"}
+													</span>
+													<span className="text-[9px] px-1.5 py-0.5 rounded bg-(--app-surface-hover) text-(--app-text-dim)">
+														{seg.id}
+													</span>
 												</div>
-												<div className="flex items-center gap-3 text-[10px] text-(--app-text-muted)">
-													<span>Mask: <span className="font-mono">{info.mask}</span></span>
-													<span>Bcast: <span className="font-mono">{broadcast}</span></span>
-												</div>
+												{parsed && (
+													<div className="flex items-center gap-3 text-[10px] text-(--app-text-muted)">
+														<span>Mask: <span className="font-mono">{ipToString(parsed.mask)}</span></span>
+														<span>Bcast: <span className="font-mono">{broadcast}</span></span>
+													</div>
+												)}
 											</div>
 
 											{/* Gateway badge */}
-											{info.gatewayIp ? (
+											{seg.gateway ? (
 												<div className="px-3 py-1.5 border-b border-(--app-border) bg-amber-500/5 flex items-center gap-2 text-[10px]">
 													<span className="text-amber-400 font-semibold">GW:</span>
-													<span className="font-mono text-amber-300">{info.gatewayIp}</span>
+													<span className="font-mono text-amber-300">{seg.gateway.ip}</span>
 													{gwDev && (
 														<span className="text-(--app-text-dim)">
-															via <span className="font-medium text-(--app-text-muted)">{gwDev.name}</span>
+															via <span className="font-medium text-(--app-text-muted)">{gwDev.name}</span> P{seg.gateway.portNumber}
 														</span>
 													)}
 												</div>
 											) : (
 												<div className="px-3 py-1 border-b border-(--app-border) bg-red-500/5 text-[10px] text-red-400">
-													No gateway (no L3 device)
+													No gateway (no L3 device in segment)
 												</div>
 											)}
 
 											{/* Utilization bar */}
-											<div className="px-3 py-1.5 border-b border-(--app-border)">
-												<div className="flex items-center justify-between text-[10px] text-(--app-text-dim) mb-0.5">
-													<span>{usedCount} / {maxHosts} hosts</span>
-													<span className="font-mono">{maxHosts > 0 ? Math.round((usedCount / maxHosts) * 100) : 0}%</span>
+											{parsed && (
+												<div className="px-3 py-1.5 border-b border-(--app-border)">
+													<div className="flex items-center justify-between text-[10px] text-(--app-text-dim) mb-0.5">
+														<span>{usedCount} / {maxHosts} hosts</span>
+														<span className="font-mono">{maxHosts > 0 ? Math.round((usedCount / maxHosts) * 100) : 0}%</span>
+													</div>
+													<div className="w-full h-1 bg-(--app-surface-hover) rounded-full overflow-hidden">
+														<div
+															className="h-full rounded-full bg-emerald-500 transition-all"
+															style={{ width: `${maxHosts > 0 ? Math.min(100, (usedCount / maxHosts) * 100) : 0}%` }}
+														/>
+													</div>
 												</div>
-												<div className="w-full h-1 bg-(--app-surface-hover) rounded-full overflow-hidden">
-													<div
-														className="h-full rounded-full bg-emerald-500 transition-all"
-														style={{ width: `${maxHosts > 0 ? Math.min(100, (usedCount / maxHosts) * 100) : 0}%` }}
-													/>
-												</div>
-											</div>
+											)}
 
 											{/* Devices */}
 											<div className="divide-y divide-(--app-border)">
 												{deviceIds.map((devId) => {
 													const dev = getDevice(devId)
 													if (!dev) return null
-													const devPorts = info.ports.filter((p) => p.deviceId === devId)
+													const devPorts = allIps.filter((p) => p.deviceId === devId)
+													if (devPorts.length === 0) {
+														// Device in segment but no IP
+														return (
+															<div key={devId} className="px-3 py-2 flex items-center gap-2">
+																<div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: dev.color }} />
+																<span className="text-xs font-medium text-(--app-text)">{dev.name}</span>
+																<span className="text-[9px] text-(--app-text-dim) ml-auto">no IP</span>
+															</div>
+														)
+													}
 													return (
 														<div key={devId} className="px-3 py-2 flex items-center gap-2">
 															<div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: dev.color }} />
@@ -450,12 +498,12 @@ export default function NetworkInsights({
 																			className={`px-1 py-0.5 text-[9px] font-mono rounded ${
 																				p.isGateway
 																					? "bg-amber-500/15 text-amber-300"
-																					: p.portNumber === 0
+																					: p.alias === "mgmt"
 																						? "bg-violet-500/15 text-violet-300"
 																						: "bg-emerald-500/15 text-emerald-300"
 																			}`}
 																		>
-																			{p.portNumber === 0 ? "MGMT" : `P${p.portNumber}`}: {p.ip}
+																			{p.alias === "mgmt" ? "MGMT" : `P${p.portNumber}`}: {p.ip}
 																			{p.isGateway && " (GW)"}
 																		</span>
 																	))}

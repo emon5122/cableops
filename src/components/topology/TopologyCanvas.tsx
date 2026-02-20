@@ -2,22 +2,22 @@ import DeviceContextMenu from "@/components/topology/DeviceContextMenu"
 import DeviceIcon from "@/components/topology/DeviceIcon"
 import PortContextMenu from "@/components/topology/PortContextMenu"
 import {
-	DEVICE_CAPABILITIES,
-	DEVICE_NODE_WIDTH,
-	INFO_STRIP_HEIGHT,
-	PORT_SIZE,
-	getDeviceNodeHeight,
-	getPortDisplayColor,
-	getPortPosition,
-	isPortConnected,
-	luminance,
-	type AnnotationRow,
-	type ConnectionRow,
-	type DeviceRow,
-	type DeviceType,
-	type DragState,
-	type PortConfigRow,
-	type PortSelection,
+    DEVICE_CAPABILITIES,
+    DEVICE_NODE_WIDTH,
+    INFO_STRIP_HEIGHT,
+    PORT_SIZE,
+    getDeviceNodeHeight,
+    getPortDisplayColor,
+    getPortPosition,
+    isPortConnected,
+    luminance,
+    type AnnotationRow,
+    type ConnectionRow,
+    type DeviceRow,
+    type DeviceType,
+    type DragState,
+    type InterfaceRow,
+    type PortSelection,
 } from "@/lib/topology-types"
 import { useCallback, useMemo, useRef, useState } from "react"
 
@@ -31,7 +31,7 @@ interface ContextMenuState {
 interface TopologyCanvasProps {
 	devices: DeviceRow[]
 	connections: ConnectionRow[]
-	portConfigs: PortConfigRow[]
+	portConfigs: InterfaceRow[]
 	annotations: AnnotationRow[]
 	selectedPort: PortSelection | null
 	onPortClick: (deviceId: string, portNumber: number) => void
@@ -47,17 +47,20 @@ interface TopologyCanvasProps {
 		reserved?: boolean
 		reservedLabel?: string | null
 		portRole?: string | null
-	}) => void
-	onDisconnect: (connectionId: string) => void
-	onUpdateDevice: (id: string, fields: {
-		managementIp?: string | null
-		natEnabled?: boolean
-		gateway?: string | null
+		ipAddress?: string | null
+		macAddress?: string | null
+		portMode?: string | null
 		dhcpEnabled?: boolean
 		dhcpRangeStart?: string | null
 		dhcpRangeEnd?: string | null
 		ssid?: string | null
 		wifiPassword?: string | null
+		natEnabled?: boolean
+		gateway?: string | null
+	}) => void
+	onDisconnect: (connectionId: string) => void
+	onUpdateDevice: (id: string, fields: {
+		ipForwarding?: boolean
 	}) => void
 	onDeleteDevice: (id: string) => void
 	onAddAnnotation: (ann: { x: number; y: number; kind: "rect" | "label"; label?: string }) => void
@@ -389,21 +392,24 @@ export default function TopologyCanvas({
 		const map = new Map<string, { ip: string | null; badges: { label: string; color: string }[] }>()
 		for (const device of devices) {
 			const caps = DEVICE_CAPABILITIES[device.deviceType as DeviceType]
-			let ip: string | null = device.managementIp ?? null
 			const badges: { label: string; color: string }[] = []
 
-			/* For L3 / endpoint devices without managementIp, find first port IP */
-			if (!ip) {
-				const firstPortIp = portConfigs.find((pc) => pc.deviceId === device.id && pc.ipAddress)
-				if (firstPortIp) ip = firstPortIp.ipAddress
-			}
+			/* Find first IP from any interface of this device */
+			const deviceIfaces = portConfigs.filter((pc) => pc.deviceId === device.id)
+			const firstIp = deviceIfaces.find((pc) => pc.ipAddress)?.ipAddress ?? null
 
-			if (device.dhcpEnabled) badges.push({ label: "DHCP", color: "#06b6d4" })
-			if (device.natEnabled) badges.push({ label: "NAT", color: "#f59e0b" })
-			if (device.ssid) badges.push({ label: device.ssid, color: "#38bdf8" })
-			if (device.gateway) badges.push({ label: `GW ${device.gateway}`, color: "#a78bfa" })
+			/* Aggregate badges from all interfaces */
+			const hasDhcp = deviceIfaces.some((pc) => pc.dhcpEnabled)
+			const hasNat = deviceIfaces.some((pc) => pc.natEnabled)
+			const ssid = deviceIfaces.find((pc) => pc.ssid)?.ssid
+			const gw = deviceIfaces.find((pc) => pc.gateway)?.gateway
 
-			map.set(device.id, { ip, badges })
+			if (hasDhcp) badges.push({ label: "DHCP", color: "#06b6d4" })
+			if (hasNat) badges.push({ label: "NAT", color: "#f59e0b" })
+			if (ssid) badges.push({ label: ssid, color: "#38bdf8" })
+			if (gw) badges.push({ label: `GW ${gw}`, color: "#a78bfa" })
+
+			map.set(device.id, { ip: firstIp, badges })
 		}
 		return map
 	}, [devices, portConfigs])

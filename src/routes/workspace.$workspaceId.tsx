@@ -4,7 +4,7 @@ import NetworkInsights from "@/components/workspace/NetworkInsights"
 import WorkspaceSidebar from "@/components/workspace/WorkspaceSidebar"
 import { useTRPC } from "@/integrations/trpc/react"
 import { authClient } from "@/lib/auth-client"
-import type { DeviceType, PortConfigRow } from "@/lib/topology-types"
+import type { DeviceType, InterfaceRow } from "@/lib/topology-types"
 import { DEVICE_CAPABILITIES, getNextDhcpIp, isPortConnected } from "@/lib/topology-types"
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
@@ -58,20 +58,20 @@ function WorkspacePage() {
 	const connections = connectionsQuery.data ?? []
 	const annotations = annotationsQuery.data ?? []
 
-	/* ── Port configs (one query per device) ── */
-	const portConfigQueries = useQueries({
+	/* ── Interfaces (per-port config including IP, DHCP, WiFi, NAT) ── */
+	const interfaceQueries = useQueries({
 		queries: devices.map((d) =>
-			trpc.portConfigs.list.queryOptions({ deviceId: d.id }),
+			trpc.interfaces.list.queryOptions({ deviceId: d.id }),
 		),
 	})
 
-	const portConfigs = useMemo<PortConfigRow[]>(() => {
-		const all: PortConfigRow[] = []
-		for (const q of portConfigQueries) {
+	const portConfigs = useMemo<InterfaceRow[]>(() => {
+		const all: InterfaceRow[] = []
+		for (const q of interfaceQueries) {
 			if (q.data) all.push(...q.data)
 		}
 		return all
-	}, [portConfigQueries])
+	}, [interfaceQueries])
 
 	/* ── Invalidation helper ── */
 	const invalidateAll = useCallback(() => {
@@ -86,7 +86,7 @@ function WorkspacePage() {
 		})
 		for (const d of devices) {
 			void queryClient.invalidateQueries({
-				queryKey: trpc.portConfigs.list.queryKey({ deviceId: d.id }),
+				queryKey: trpc.interfaces.list.queryKey({ deviceId: d.id }),
 			})
 		}
 	}, [queryClient, trpc, workspaceId, devices])
@@ -111,7 +111,7 @@ function WorkspacePage() {
 		trpc.connections.delete.mutationOptions({ onSuccess: invalidateAll }),
 	)
 	const upsertPortConfig = useMutation(
-		trpc.portConfigs.upsert.mutationOptions({ onSuccess: invalidateAll }),
+		trpc.interfaces.upsert.mutationOptions({ onSuccess: invalidateAll }),
 	)
 	const createAnnotation = useMutation(
 		trpc.annotations.create.mutationOptions({ onSuccess: invalidateAll }),
@@ -186,18 +186,25 @@ function WorkspacePage() {
 					onSuccess: () => {
 						/* Auto-assign DHCP IP to the client on wired connections */
 						if (!isWifi) {
-							/* Determine which device is the DHCP server and which is the client */
+							/* Determine which interface is the DHCP server */
+							const ifaceA = portConfigs.find(
+								(pc) => pc.deviceId === selectedPort.deviceId && pc.portNumber === selectedPort.portNumber,
+							)
+							const ifaceB = portConfigs.find(
+								(pc) => pc.deviceId === deviceId && pc.portNumber === portNumber,
+							)
+
 							let dhcpServer: typeof devA = null
 							let serverPort: number | null = null
 							let clientId: string | null = null
 							let clientPort: number | null = null
 
-							if (devA?.dhcpEnabled) {
+							if (ifaceA?.dhcpEnabled && devA) {
 								dhcpServer = devA
 								serverPort = selectedPort.portNumber
 								clientId = deviceId
 								clientPort = portNumber
-							} else if (devB?.dhcpEnabled) {
+							} else if (ifaceB?.dhcpEnabled && devB) {
 								dhcpServer = devB
 								serverPort = portNumber
 								clientId = selectedPort.deviceId
@@ -205,13 +212,7 @@ function WorkspacePage() {
 							}
 
 							if (dhcpServer && clientId && clientPort !== null && serverPort !== null) {
-								/* Get the DHCP server's port IP to check subnet match */
-								const serverPortConfig = portConfigs.find(
-									(pc) => pc.deviceId === dhcpServer!.id && pc.portNumber === serverPort,
-								)
-								const gatewayPortIp = serverPortConfig?.ipAddress ?? null
-
-								const ip = getNextDhcpIp(dhcpServer, connections, devices, portConfigs, gatewayPortIp)
+								const ip = getNextDhcpIp(dhcpServer, serverPort, connections, portConfigs)
 								if (ip) {
 									upsertPortConfig.mutate({
 										deviceId: clientId,
@@ -230,7 +231,7 @@ function WorkspacePage() {
 							const otherDev = devices.find((d) => d.id === otherDevId)
 							const otherCaps = otherDev ? DEVICE_CAPABILITIES[otherDev.deviceType as DeviceType] : null
 							/* Only auto-assign uplink on L3 devices (router, firewall, etc.) */
-							if (otherCaps && otherCaps.layer === "L3") {
+							if (otherCaps && otherCaps.layer === 3) {
 								upsertPortConfig.mutate({
 									deviceId: otherDevId,
 									portNumber: otherPort,
@@ -260,6 +261,13 @@ function WorkspacePage() {
 			macAddress?: string | null
 			portMode?: string | null
 			portRole?: string | null
+			dhcpEnabled?: boolean
+			dhcpRangeStart?: string | null
+			dhcpRangeEnd?: string | null
+			ssid?: string | null
+			wifiPassword?: string | null
+			natEnabled?: boolean
+			gateway?: string | null
 		}) => {
 			upsertPortConfig.mutate(config)
 		},
@@ -340,10 +348,10 @@ function WorkspacePage() {
 						},
 						{
 							onSuccess: () => {
-								/* Auto-assign DHCP IP to the client */
+								/* Auto-assign DHCP IP to the client (WiFi port 0) */
 								const hostDev = devices.find((d) => d.id === hostDeviceId)
 								if (hostDev) {
-									const ip = getNextDhcpIp(hostDev, connections, devices, portConfigs)
+									const ip = getNextDhcpIp(hostDev, 0, connections, portConfigs)
 									if (ip) {
 										upsertPortConfig.mutate({
 											deviceId: clientDeviceId,

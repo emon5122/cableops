@@ -1,1 +1,0 @@
-ALTER TABLE "port_configs" ADD COLUMN "port_role" text;

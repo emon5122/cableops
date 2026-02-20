@@ -1,5 +1,5 @@
 {
-  "id": "93c0c9e8-aeb2-4226-b7fa-a854197f02de",
+  "id": "8ca46db2-5d24-4c3f-ab0a-1b5897c29eff",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -111,6 +111,100 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.annotations": {
+      "name": "annotations",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'rect'"
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "x": {
+          "name": "x",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "y": {
+          "name": "y",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "width": {
+          "name": "width",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 200
+        },
+        "height": {
+          "name": "height",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 150
+        },
+        "color": {
+          "name": "color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'#334155'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "annotations_workspace_id_workspaces_id_fk": {
+          "name": "annotations_workspace_id_workspaces_id_fk",
+          "tableFrom": "annotations",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.connections": {
       "name": "connections",
       "schema": "",
@@ -156,6 +250,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "connection_type": {
+          "name": "connection_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'wired'"
         },
         "created_at": {
           "name": "created_at",
@@ -235,6 +336,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "device_type": {
+          "name": "device_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'switch'"
+        },
         "color": {
           "name": "color",
           "type": "text",
@@ -269,6 +377,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "ip_forwarding": {
+          "name": "ip_forwarding",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -299,8 +414,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.port_configs": {
-      "name": "port_configs",
+    "public.interfaces": {
+      "name": "interfaces",
       "schema": "",
       "columns": {
         "id": {
@@ -351,13 +466,159 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": false
+        },
+        "ip_address": {
+          "name": "ip_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "mac_address": {
+          "name": "mac_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "port_mode": {
+          "name": "port_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "port_role": {
+          "name": "port_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dhcp_enabled": {
+          "name": "dhcp_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "dhcp_range_start": {
+          "name": "dhcp_range_start",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dhcp_range_end": {
+          "name": "dhcp_range_end",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ssid": {
+          "name": "ssid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "wifi_password": {
+          "name": "wifi_password",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "nat_enabled": {
+          "name": "nat_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "gateway": {
+          "name": "gateway",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
         }
       },
       "indexes": {},
       "foreignKeys": {
-        "port_configs_device_id_devices_id_fk": {
-          "name": "port_configs_device_id_devices_id_fk",
-          "tableFrom": "port_configs",
+        "interfaces_device_id_devices_id_fk": {
+          "name": "interfaces_device_id_devices_id_fk",
+          "tableFrom": "interfaces",
+          "tableTo": "devices",
+          "columnsFrom": [
+            "device_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.routes": {
+      "name": "routes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "device_id": {
+          "name": "device_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "destination": {
+          "name": "destination",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "next_hop": {
+          "name": "next_hop",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "interface_port": {
+          "name": "interface_port",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "metric": {
+          "name": "metric",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 100
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "routes_device_id_devices_id_fk": {
+          "name": "routes_device_id_devices_id_fk",
+          "tableFrom": "routes",
           "tableTo": "devices",
           "columnsFrom": [
             "device_id"

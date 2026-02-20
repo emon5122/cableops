@@ -5,50 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1771526824677,
-      "tag": "0000_broad_cassandra_nova",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1771529268666,
-      "tag": "0001_furry_fantastic_four",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1771530408013,
-      "tag": "0002_windy_old_lace",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1771533280435,
-      "tag": "0003_fair_deathbird",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1771539769567,
-      "tag": "0004_quick_ultimo",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1771541937947,
-      "tag": "0005_futuristic_spencer_smythe",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1771544869127,
-      "tag": "0006_bitter_solo",
+      "when": 1771602225952,
+      "tag": "0000_gifted_quicksilver",
       "breakpoints": true
     }
   ]

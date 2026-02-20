@@ -2,35 +2,33 @@ import DeviceIcon from "@/components/topology/DeviceIcon"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
-	DEFAULT_COLORS,
-	DEVICE_CAPABILITIES,
-	DEVICE_TYPES,
-	DEVICE_TYPE_DEFAULT_PORTS,
-	DEVICE_TYPE_LABELS,
-	bestTextColor,
-	getPortDisplayColor,
-	getPortPeer,
-	getWifiConnections,
-	isPortConnected,
-	type ConnectionRow,
-	type DeviceRow,
-	type DeviceType,
-	type PortConfigRow,
-	type PortSelection
+    DEFAULT_COLORS,
+    DEVICE_CAPABILITIES,
+    DEVICE_TYPES,
+    DEVICE_TYPE_DEFAULT_PORTS,
+    DEVICE_TYPE_LABELS,
+    bestTextColor,
+    getPortDisplayColor,
+    getPortPeer,
+    getWifiConnections,
+    isPortConnected,
+    type ConnectionRow,
+    type DeviceRow,
+    type DeviceType,
+    type InterfaceRow,
+    type PortSelection
 } from "@/lib/topology-types"
 import {
-	Cable,
-	ChevronDown,
-	ChevronRight,
-	Globe,
-	Palette,
-	Plus,
-	Search,
-	Settings,
-	Trash2,
-	Wifi
+    Cable,
+    ChevronDown,
+    ChevronRight,
+    Palette,
+    Plus,
+    Search,
+    Trash2,
+    Wifi
 } from "lucide-react"
-import { useCallback, useState } from "react"
+import { useState } from "react"
 
 interface WorkspaceSidebarProps {
 	devices: DeviceRow[]
@@ -41,21 +39,14 @@ interface WorkspaceSidebarProps {
 	onUpdateDevice: (id: string, fields: {
 		color?: string
 		name?: string
-		managementIp?: string | null
-		natEnabled?: boolean
-		gateway?: string | null
-		dhcpEnabled?: boolean
-		dhcpRangeStart?: string | null
-		dhcpRangeEnd?: string | null
-		ssid?: string | null
-		wifiPassword?: string | null
+		ipForwarding?: boolean
 	}) => void
 	onDeleteDevice: (id: string) => void
 	onDeviceSelect: (id: string | null) => void
 	onPortClick: (deviceId: string, portNumber: number) => void
 	onDeleteConnection: (id: string) => void
 	onWifiConnect: (clientDeviceId: string, hostDeviceId: string) => void
-	portConfigs: PortConfigRow[]
+	portConfigs: InterfaceRow[]
 	searchQuery: string
 	onSearchChange: (query: string) => void
 }
@@ -86,7 +77,6 @@ export default function WorkspaceSidebar({
 	const [editingColorDevice, setEditingColorDevice] = useState<string | null>(null)
 	const [editingNameDevice, setEditingNameDevice] = useState<string | null>(null)
 	const [editNameValue, setEditNameValue] = useState("")
-	const [showNetworkSettings, setShowNetworkSettings] = useState<string | null>(null)
 
 	const handleSelectType = (t: DeviceType) => {
 		setNewType(t)
@@ -420,8 +410,9 @@ export default function WorkspaceSidebar({
 											if (caps.wifiClient) {
 												const wifiHosts = devices.filter((d) => {
 													const dCaps = DEVICE_CAPABILITIES[d.deviceType as DeviceType]
-													/* Only show hosts that have wifiHost capability AND have an SSID configured */
-													return dCaps?.wifiHost && d.id !== device.id && d.ssid
+													/* Only show hosts that have wifiHost capability AND have an SSID configured on an interface */
+													const dSsid = portConfigs.find((pc) => pc.deviceId === d.id && pc.ssid)?.ssid
+													return dCaps?.wifiHost && d.id !== device.id && dSsid
 												})
 												/* Already connected to a WiFi host? */
 												const connectedHostIds = new Set(
@@ -445,9 +436,12 @@ export default function WorkspaceSidebar({
 																		<div key={wc.id} className="flex items-center gap-1 text-xs text-sky-300 flex-wrap">
 																			<Wifi size={9} />
 																			<span>{hostDev?.name ?? "?"}</span>
-																			{hostDev?.ssid && (
-																				<span className="text-[10px] text-(--app-text-dim) ml-0.5">({hostDev.ssid})</span>
-																			)}
+																			{(() => {
+																			const hostSsid = portConfigs.find((pc) => pc.deviceId === hostId && pc.ssid)?.ssid
+																			return hostSsid ? (
+																				<span className="text-[10px] text-(--app-text-dim) ml-0.5">({hostSsid})</span>
+																			) : null
+																		})()}
 																			{wifiIp && (
 																				<span className="text-[10px] font-mono text-emerald-400 ml-0.5">{wifiIp}</span>
 																			)}
@@ -480,9 +474,12 @@ export default function WorkspaceSidebar({
 																		>
 																			<Wifi size={10} className="text-sky-500" />
 																			<span>{host.name}</span>
-																			{host.ssid && (
-																				<span className="text-[10px] text-(--app-text-dim)">({host.ssid})</span>
-																			)}
+																			{(() => {
+																				const hSsid = portConfigs.find((pc) => pc.deviceId === host.id && pc.ssid)?.ssid
+																				return hSsid ? (
+																					<span className="text-[10px] text-(--app-text-dim)">({hSsid})</span>
+																				) : null
+																			})()}
 																			<span className="ml-auto text-[10px] text-sky-500">Join</span>
 																		</button>
 																	))}
@@ -564,15 +561,10 @@ export default function WorkspaceSidebar({
 											</div>
 										)}
 
-										{/* Network settings toggle */}
-										<DeviceNetworkSettings
-											device={device}
-											onUpdateDevice={onUpdateDevice}
-											isOpen={showNetworkSettings === device.id}
-											onToggle={() => setShowNetworkSettings(
-												showNetworkSettings === device.id ? null : device.id
-											)}
-										/>
+										{/* Hint: configure networking per-interface */}
+										<div className="mt-2 text-[10px] text-(--app-text-dim) italic">
+											Right-click a port for IP, DHCP, WiFi, NAT settings
+										</div>
 									</div>
 								)}
 							</div>
@@ -596,283 +588,5 @@ export default function WorkspaceSidebar({
 				</div>
 			)}
 		</aside>
-	)
-}
-
-
-/* ── Device-level Network Settings ── */
-
-interface DeviceNetworkSettingsProps {
-	device: DeviceRow
-	onUpdateDevice: (id: string, fields: {
-		managementIp?: string | null
-		natEnabled?: boolean
-		gateway?: string | null
-		dhcpEnabled?: boolean
-		dhcpRangeStart?: string | null
-		dhcpRangeEnd?: string | null
-		ssid?: string | null
-		wifiPassword?: string | null
-	}) => void
-	isOpen: boolean
-	onToggle: () => void
-}
-
-function DeviceNetworkSettings({
-	device,
-	onUpdateDevice,
-	isOpen,
-	onToggle,
-}: DeviceNetworkSettingsProps) {
-	const caps = DEVICE_CAPABILITIES[device.deviceType as DeviceType] ?? DEVICE_CAPABILITIES.pc
-
-	/* Determine what settings are relevant */
-	const hasAnySettings =
-		caps.managementIp || caps.natCapable || caps.dhcpCapable ||
-		caps.layer === "endpoint" || caps.wifiHost
-
-	const [mgmtIp, setMgmtIp] = useState(device.managementIp ?? "")
-	const [gateway, setGateway] = useState(device.gateway ?? "")
-	const [dhcpStart, setDhcpStart] = useState(device.dhcpRangeStart ?? "")
-	const [dhcpEnd, setDhcpEnd] = useState(device.dhcpRangeEnd ?? "")
-	const [ssid, setSsid] = useState(device.ssid ?? "")
-	const [wifiPass, setWifiPass] = useState(device.wifiPassword ?? "")
-
-	const handleSave = useCallback(() => {
-		const fields: Record<string, string | boolean | null> = {}
-		if (caps.managementIp) {
-			fields.managementIp = mgmtIp.trim() || null
-		}
-		if (caps.layer === "endpoint") {
-			fields.gateway = gateway.trim() || null
-		}
-		if (caps.natCapable) {
-			fields.natEnabled = device.natEnabled ?? false
-		}
-		if (caps.dhcpCapable) {
-			fields.dhcpEnabled = device.dhcpEnabled ?? false
-			fields.dhcpRangeStart = dhcpStart.trim() || null
-			fields.dhcpRangeEnd = dhcpEnd.trim() || null
-		}
-		onUpdateDevice(device.id, fields)
-	}, [caps, device, mgmtIp, gateway, dhcpStart, dhcpEnd, onUpdateDevice])
-
-	if (!hasAnySettings) return null
-
-	return (
-		<div className="mt-2">
-			<button
-				type="button"
-				className="flex items-center gap-1.5 text-xs text-(--app-text-muted) hover:text-(--app-text) transition-colors w-full"
-				onClick={(e) => { e.stopPropagation(); onToggle() }}
-			>
-				<Settings size={11} />
-				<span>Network Settings</span>
-				{isOpen ? <ChevronDown size={11} className="ml-auto" /> : <ChevronRight size={11} className="ml-auto" />}
-			</button>
-
-			{isOpen && (
-				<div className="mt-2 space-y-2 bg-(--app-surface-alt) rounded-md p-2 border border-(--app-border)" onClick={(e) => e.stopPropagation()}>
-
-					{/* Management IP for L2 devices / Public IP for Internet */}
-					{caps.managementIp && (
-						<div>
-							<label className="text-[10px] text-(--app-text-dim) uppercase tracking-wider block mb-0.5">
-								{caps.layer === "cloud" ? "Public (Outbound) IP" : "Management IP"}
-							</label>
-							<div className="flex gap-1">
-								<input
-									type="text"
-									placeholder={caps.layer === "cloud" ? "e.g. 203.0.113.1" : "e.g. 192.168.1.2"}
-									value={mgmtIp}
-									onChange={(e) => setMgmtIp(e.target.value)}
-									className="flex-1 bg-(--app-input-bg) border border-(--app-border-light) rounded px-2 py-1 text-xs text-(--app-text) font-mono outline-none"
-								/>
-								<button
-									type="button"
-									className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white text-xs rounded"
-									onClick={() => onUpdateDevice(device.id, { managementIp: mgmtIp.trim() || null })}
-								>
-									Set
-								</button>
-							</div>
-							<p className="text-[9px] text-(--app-text-dim) mt-0.5">
-								{caps.layer === "cloud"
-									? "ISP-assigned public IP (WAN outbound address)"
-									: "Single IP for this L2 device (SNMP, SSH, web management)"}
-							</p>
-						</div>
-					)}
-
-					{/* Gateway for endpoints */}
-					{caps.layer === "endpoint" && (
-						<div>
-							<label className="text-[10px] text-(--app-text-dim) uppercase tracking-wider block mb-0.5">
-								Default Gateway
-							</label>
-							<div className="flex gap-1">
-								<input
-									type="text"
-									placeholder="e.g. 192.168.1.1"
-									value={gateway}
-									onChange={(e) => setGateway(e.target.value)}
-									className="flex-1 bg-(--app-input-bg) border border-(--app-border-light) rounded px-2 py-1 text-xs text-(--app-text) font-mono outline-none"
-								/>
-								<button
-									type="button"
-									className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white text-xs rounded"
-									onClick={() => onUpdateDevice(device.id, { gateway: gateway.trim() || null })}
-								>
-									Set
-								</button>
-							</div>
-							<p className="text-[9px] text-(--app-text-dim) mt-0.5">
-								Router IP this device uses as its default gateway
-							</p>
-						</div>
-					)}
-
-					{/* NAT toggle for L3 */}
-					{caps.natCapable && (
-						<div className="flex items-center justify-between">
-							<div>
-								<div className="text-[10px] text-(--app-text-dim) uppercase tracking-wider">NAT</div>
-								<p className="text-[9px] text-(--app-text-dim)">
-									Network Address Translation
-								</p>
-							</div>
-							<button
-								type="button"
-								className={`w-9 h-5 rounded-full transition-colors relative ${
-									device.natEnabled ? "bg-emerald-500" : "bg-(--app-surface-hover)"
-								}`}
-								onClick={() => onUpdateDevice(device.id, { natEnabled: !device.natEnabled })}
-							>
-								<div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-									device.natEnabled ? "translate-x-4" : "translate-x-0.5"
-								}`} />
-							</button>
-						</div>
-					)}
-
-					{/* DHCP for routers/servers */}
-					{caps.dhcpCapable && (
-						<div className="space-y-1.5">
-							<div className="flex items-center justify-between">
-								<div>
-									<div className="text-[10px] text-(--app-text-dim) uppercase tracking-wider">DHCP Server</div>
-								</div>
-								<button
-									type="button"
-									className={`w-9 h-5 rounded-full transition-colors relative ${
-										device.dhcpEnabled ? "bg-emerald-500" : "bg-(--app-surface-hover)"
-									}`}
-									onClick={() => onUpdateDevice(device.id, { dhcpEnabled: !device.dhcpEnabled })}
-								>
-									<div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-										device.dhcpEnabled ? "translate-x-4" : "translate-x-0.5"
-									}`} />
-								</button>
-							</div>
-							{device.dhcpEnabled && (
-								<div className="space-y-1">
-									<div className="flex gap-1">
-										<input
-											type="text"
-											placeholder="Start: 192.168.1.100"
-											value={dhcpStart}
-											onChange={(e) => setDhcpStart(e.target.value)}
-											className="flex-1 bg-(--app-input-bg) border border-(--app-border-light) rounded px-2 py-1 text-xs text-(--app-text) font-mono outline-none"
-										/>
-									</div>
-									<div className="flex gap-1">
-										<input
-											type="text"
-											placeholder="End: 192.168.1.200"
-											value={dhcpEnd}
-											onChange={(e) => setDhcpEnd(e.target.value)}
-											className="flex-1 bg-(--app-input-bg) border border-(--app-border-light) rounded px-2 py-1 text-xs text-(--app-text) font-mono outline-none"
-										/>
-									</div>
-									<button
-										type="button"
-										className="w-full px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white text-xs rounded"
-										onClick={handleSave}
-									>
-										Save DHCP Range
-									</button>
-								</div>
-							)}
-						</div>
-					)}
-
-					{/* WiFi SSID & Password for AP / Router */}
-					{caps.wifiHost && (
-						<div className="space-y-1.5">
-							<div className="text-[10px] text-(--app-text-dim) uppercase tracking-wider">WiFi Network</div>
-							<input
-								type="text"
-								placeholder="SSID (network name)"
-								value={ssid}
-								onChange={(e) => setSsid(e.target.value)}
-								className="w-full bg-(--app-input-bg) border border-(--app-border-light) rounded px-2 py-1 text-xs text-(--app-text) outline-none"
-							/>
-							<input
-								type="password"
-								placeholder="WiFi Password"
-								value={wifiPass}
-								onChange={(e) => setWifiPass(e.target.value)}
-								className="w-full bg-(--app-input-bg) border border-(--app-border-light) rounded px-2 py-1 text-xs text-(--app-text) outline-none"
-							/>
-							<button
-								type="button"
-								className="w-full px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white text-xs rounded"
-								onClick={() => onUpdateDevice(device.id, {
-									ssid: ssid.trim() || null,
-									wifiPassword: wifiPass.trim() || null,
-								})}
-							>
-								Save WiFi
-							</button>
-							{device.ssid && (
-								<p className="text-[9px] text-emerald-400">
-									Broadcasting: <span className="font-mono">{device.ssid}</span>
-								</p>
-							)}
-						</div>
-					)}
-
-					{/* Info badges */}
-					<div className="flex flex-wrap gap-1 pt-1 border-t border-(--app-border)">
-						<span className="text-[9px] px-1.5 py-0.5 rounded bg-(--app-surface) text-(--app-text-dim)">
-							{caps.layer === 1 ? "L1" : caps.layer === 2 ? "L2" : caps.layer === 3 ? "L3" : caps.layer === "cloud" ? "WAN" : "Endpoint"}
-						</span>
-						{caps.perPortIp && (
-							<span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-400/10 text-emerald-400">
-								<Globe size={8} className="inline mr-0.5" />Per-port IP
-							</span>
-						)}
-						{caps.natCapable && (
-							<span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-400/10 text-amber-400">NAT</span>
-						)}
-						{caps.vlanSupport && (
-							<span className="text-[9px] px-1.5 py-0.5 rounded bg-violet-400/10 text-violet-400">VLAN</span>
-						)}
-						{caps.dhcpCapable && (
-							<span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-400/10 text-cyan-400">DHCP</span>
-						)}
-						{caps.wifiHost && device.ssid && (
-							<span className="text-[9px] px-1.5 py-0.5 rounded bg-sky-400/10 text-sky-400">WiFi Host</span>
-						)}
-						{caps.wifiHost && !device.ssid && (
-							<span className="text-[9px] px-1.5 py-0.5 rounded bg-sky-400/10 text-sky-400/40">WiFi Capable</span>
-						)}
-						{caps.wifiClient && (
-							<span className="text-[9px] px-1.5 py-0.5 rounded bg-sky-400/10 text-sky-300">WiFi</span>
-						)}
-					</div>
-				</div>
-			)}
-		</div>
 	)
 }

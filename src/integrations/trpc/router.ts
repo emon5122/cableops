@@ -3,7 +3,7 @@ import { z } from "zod"
 
 import { db } from "@/db"
 import * as schema from "@/db/schema"
-import { DEVICE_CAPABILITIES, getBroadcastDomain, getGatewaySubnet, parseIp, type ConnectionRow, type DeviceRow, type DeviceType, type PortConfigRow } from "@/lib/topology-types"
+import { getNetworkSegment, parseIp, type ConnectionRow, type DeviceRow } from "@/lib/topology-types"
 import { createTRPCRouter, publicProcedure } from "./init"
 
 import type { TRPCRouterRecord } from "@trpc/server"
@@ -127,14 +127,7 @@ const devicesRouter = {
 				positionX: z.number().int().optional(),
 				positionY: z.number().int().optional(),
 				maxSpeed: z.string().optional(),
-				managementIp: z.string().nullable().optional(),
-				natEnabled: z.boolean().optional(),
-				gateway: z.string().nullable().optional(),
-				dhcpEnabled: z.boolean().optional(),
-				dhcpRangeStart: z.string().nullable().optional(),
-				dhcpRangeEnd: z.string().nullable().optional(),
-				ssid: z.string().nullable().optional(),
-				wifiPassword: z.string().nullable().optional(),
+				ipForwarding: z.boolean().optional(),
 			}),
 		)
 		.mutation(async ({ input }) => {
@@ -151,14 +144,7 @@ const devicesRouter = {
 					positionX: input.positionX ?? 100,
 					positionY: input.positionY ?? 100,
 					maxSpeed: input.maxSpeed ?? null,
-					managementIp: input.managementIp ?? null,
-					natEnabled: input.natEnabled ?? false,
-					gateway: input.gateway ?? null,
-					dhcpEnabled: input.dhcpEnabled ?? false,
-					dhcpRangeStart: input.dhcpRangeStart ?? null,
-					dhcpRangeEnd: input.dhcpRangeEnd ?? null,
-					ssid: input.ssid ?? null,
-					wifiPassword: input.wifiPassword ?? null,
+					ipForwarding: input.ipForwarding ?? false,
 				})
 				.returning()
 			const row = rows[0]
@@ -175,72 +161,11 @@ const devicesRouter = {
 				color: z.string().optional(),
 				portCount: z.number().int().min(0).max(9999).optional(),
 				maxSpeed: z.string().nullable().optional(),
-				managementIp: z.string().nullable().optional(),
-				natEnabled: z.boolean().optional(),
-				gateway: z.string().nullable().optional(),
-				dhcpEnabled: z.boolean().optional(),
-				dhcpRangeStart: z.string().nullable().optional(),
-				dhcpRangeEnd: z.string().nullable().optional(),
-				ssid: z.string().nullable().optional(),
-				wifiPassword: z.string().nullable().optional(),
+				ipForwarding: z.boolean().optional(),
 			}),
 		)
 		.mutation(async ({ input }) => {
 			const { id, ...fields } = input
-
-			/* Validate management IP format */
-			if (fields.managementIp && !isValidIp(fields.managementIp)) {
-				throw new Error("Invalid management IP format")
-			}
-
-			/* Validate management IP is in the correct subnet for its broadcast domain */
-			if (fields.managementIp) {
-				const deviceRows = await db.select().from(schema.devices).where(eq(schema.devices.id, id))
-				const device = deviceRows[0]
-				if (device) {
-					const caps = DEVICE_CAPABILITIES[device.deviceType as DeviceType]
-					/* Skip subnet check for cloud devices and L3 devices (they define the subnet) */
-					if (caps && caps.layer !== "cloud" && caps.layer !== "L3") {
-						const wsDevices = await db.select().from(schema.devices).where(eq(schema.devices.workspaceId, device.workspaceId))
-						const wsConns = await db.select().from(schema.connections).where(eq(schema.connections.workspaceId, device.workspaceId))
-						const wsPortConfigs = await db.select().from(schema.portConfigs).where(
-							inArray(schema.portConfigs.deviceId, wsDevices.map((d) => d.id)),
-						)
-						const gw = getGatewaySubnet(id, 0, wsDevices as DeviceRow[], wsConns as ConnectionRow[], wsPortConfigs as PortConfigRow[])
-						if (gw) {
-							const parsed = parseIp(fields.managementIp)
-							if (parsed && ((parsed.ip & gw.mask) >>> 0) !== gw.network) {
-								throw new Error(
-									`Management IP ${fields.managementIp} is not in the subnet ${gw.subnet} (gateway: ${gw.gatewayDeviceName}). The device must use an IP in its connected network segment.`,
-								)
-							}
-						}
-					}
-				}
-			}
-
-			/* Validate gateway IP format */
-			if (fields.gateway && !isValidIp(fields.gateway)) {
-				throw new Error("Invalid gateway IP format")
-			}
-
-			/* Validate DHCP range */
-			if (fields.dhcpRangeStart || fields.dhcpRangeEnd) {
-				const start = fields.dhcpRangeStart ?? null
-				const end = fields.dhcpRangeEnd ?? null
-				if (start && !parseIpv4(start)) throw new Error("Invalid DHCP range start IP")
-				if (end && !parseIpv4(end)) throw new Error("Invalid DHCP range end IP")
-				if (start && end) {
-					const s = parseIpv4(start)!
-					const e = parseIpv4(end)!
-					if (s > e) throw new Error("DHCP range start must be less than or equal to end")
-					/* Ensure same /24 subnet */
-					if ((s >>> 8) !== (e >>> 8)) {
-						throw new Error("DHCP range start and end must be in the same /24 subnet")
-					}
-				}
-			}
-
 			const rows = await db
 				.update(schema.devices)
 				.set(fields)
@@ -368,17 +293,32 @@ const connectionsRouter = {
 		),
 } satisfies TRPCRouterRecord
 
-/* ── Port configs ── */
+/* ── Interfaces (replaces port configs) ── */
 
-const portConfigsRouter = {
+const interfacesRouter = {
 	list: publicProcedure
 		.input(z.object({ deviceId: z.string() }))
 		.query(({ input }) =>
 			db
 				.select()
-				.from(schema.portConfigs)
-				.where(eq(schema.portConfigs.deviceId, input.deviceId)),
+				.from(schema.interfaces)
+				.where(eq(schema.interfaces.deviceId, input.deviceId)),
 		),
+
+	listByWorkspace: publicProcedure
+		.input(z.object({ workspaceId: z.string() }))
+		.query(async ({ input }) => {
+			const wsDevices = await db
+				.select()
+				.from(schema.devices)
+				.where(eq(schema.devices.workspaceId, input.workspaceId))
+			const deviceIds = wsDevices.map((d) => d.id)
+			if (deviceIds.length === 0) return []
+			return db
+				.select()
+				.from(schema.interfaces)
+				.where(inArray(schema.interfaces.deviceId, deviceIds))
+		}),
 
 	upsert: publicProcedure
 		.input(
@@ -394,6 +334,13 @@ const portConfigsRouter = {
 				macAddress: z.string().nullable().optional(),
 				portMode: z.string().nullable().optional(),
 				portRole: z.string().nullable().optional(),
+				dhcpEnabled: z.boolean().optional(),
+				dhcpRangeStart: z.string().nullable().optional(),
+				dhcpRangeEnd: z.string().nullable().optional(),
+				ssid: z.string().nullable().optional(),
+				wifiPassword: z.string().nullable().optional(),
+				natEnabled: z.boolean().optional(),
+				gateway: z.string().nullable().optional(),
 			}),
 		)
 		.mutation(async ({ input }) => {
@@ -403,15 +350,12 @@ const portConfigsRouter = {
 					throw new Error(`Invalid IP address format: ${input.ipAddress}`)
 				}
 
-				/* Check for duplicate IP within the same broadcast domain (not whole workspace).
-				   Two isolated networks in the same workspace CAN reuse the same IP. */
 				const deviceRows = await db
 					.select()
 					.from(schema.devices)
 					.where(eq(schema.devices.id, input.deviceId))
 				const device = deviceRows[0]
 				if (device) {
-					/* Load workspace devices and connections */
 					const wsDevices = await db
 						.select()
 						.from(schema.devices)
@@ -420,24 +364,28 @@ const portConfigsRouter = {
 						.select()
 						.from(schema.connections)
 						.where(eq(schema.connections.workspaceId, device.workspaceId))
+					const wsInterfaces = await db
+						.select()
+						.from(schema.interfaces)
+						.where(inArray(schema.interfaces.deviceId, wsDevices.map((d) => d.id)))
 
-					/* Get the broadcast domain (same L2 segment) for this device */
-					const domain = getBroadcastDomain(
+					/* Get the network segment for this specific port */
+					const seg = getNetworkSegment(
 						input.deviceId,
+						input.portNumber,
 						wsConns as ConnectionRow[],
 						wsDevices as DeviceRow[],
+						wsInterfaces as InterfaceRow[],
 					)
-					const domainDeviceIds = Array.from(domain)
+					const segDeviceIds = [...new Set(seg.ports.map((p) => p.deviceId))]
 
-					if (domainDeviceIds.length > 0) {
-						const domainConfigs = await db
-							.select()
-							.from(schema.portConfigs)
-							.where(inArray(schema.portConfigs.deviceId, domainDeviceIds))
+					if (segDeviceIds.length > 0) {
+						const segConfigs = wsInterfaces.filter(
+							(pc) => seg.ports.some((sp) => sp.deviceId === pc.deviceId && sp.portNumber === pc.portNumber),
+						)
 
 						const proposedPlain = stripCidr(input.ipAddress).trim()
-						for (const pc of domainConfigs) {
-							/* Skip the same device+port (we're updating it) */
+						for (const pc of segConfigs) {
 							if (pc.deviceId === input.deviceId && pc.portNumber === input.portNumber) continue
 							if (!pc.ipAddress) continue
 							const existingPlain = stripCidr(pc.ipAddress).trim()
@@ -445,6 +393,41 @@ const portConfigsRouter = {
 								throw new Error(`IP ${proposedPlain} is already assigned to another device in this network segment`)
 							}
 						}
+
+						/* Subnet validation: non-gateway ports must match the segment gateway subnet */
+						if (seg.gateway) {
+							const isGwPort = seg.gateway.deviceId === input.deviceId && seg.gateway.portNumber === input.portNumber
+							if (!isGwPort) {
+								const parsed = parseIp(input.ipAddress)
+								if (parsed && ((parsed.ip & seg.gateway.mask) >>> 0) !== seg.gateway.network) {
+									const gwDev = wsDevices.find((d) => d.id === seg.gateway!.deviceId)
+									throw new Error(
+										`IP ${input.ipAddress} is not in subnet ${seg.subnet} (gateway: ${gwDev?.name ?? "?"} P${seg.gateway.portNumber})`,
+									)
+								}
+							}
+						}
+					}
+				}
+			}
+
+			/* ── Gateway IP validation ── */
+			if (input.gateway && !isValidIp(input.gateway)) {
+				throw new Error("Invalid gateway IP format")
+			}
+
+			/* ── DHCP range validation ── */
+			if (input.dhcpRangeStart || input.dhcpRangeEnd) {
+				const start = input.dhcpRangeStart ?? null
+				const end = input.dhcpRangeEnd ?? null
+				if (start && !parseIpv4(start)) throw new Error("Invalid DHCP range start IP")
+				if (end && !parseIpv4(end)) throw new Error("Invalid DHCP range end IP")
+				if (start && end) {
+					const s = parseIpv4(start)!
+					const e = parseIpv4(end)!
+					if (s > e) throw new Error("DHCP range start must be less than or equal to end")
+					if ((s >>> 8) !== (e >>> 8)) {
+						throw new Error("DHCP range start and end must be in the same /24 subnet")
 					}
 				}
 			}
@@ -452,8 +435,8 @@ const portConfigsRouter = {
 			/* ── Upsert logic ── */
 			const existing = await db
 				.select()
-				.from(schema.portConfigs)
-				.where(eq(schema.portConfigs.deviceId, input.deviceId))
+				.from(schema.interfaces)
+				.where(eq(schema.interfaces.deviceId, input.deviceId))
 
 			const match = existing.find(
 				(p) => p.portNumber === input.portNumber,
@@ -462,16 +445,16 @@ const portConfigsRouter = {
 			if (match) {
 				const { deviceId: _d, portNumber: _p, ...fields } = input
 				const rows = await db
-					.update(schema.portConfigs)
+					.update(schema.interfaces)
 					.set(fields)
-					.where(eq(schema.portConfigs.id, match.id))
+					.where(eq(schema.interfaces.id, match.id))
 					.returning()
 				return rows[0] ?? null
 			}
 
 			const id = crypto.randomUUID()
 			const rows = await db
-				.insert(schema.portConfigs)
+				.insert(schema.interfaces)
 				.values({
 					id,
 					deviceId: input.deviceId,
@@ -485,10 +468,84 @@ const portConfigsRouter = {
 					macAddress: input.macAddress ?? null,
 					portMode: input.portMode ?? null,
 					portRole: input.portRole ?? null,
+					dhcpEnabled: input.dhcpEnabled ?? false,
+					dhcpRangeStart: input.dhcpRangeStart ?? null,
+					dhcpRangeEnd: input.dhcpRangeEnd ?? null,
+					ssid: input.ssid ?? null,
+					wifiPassword: input.wifiPassword ?? null,
+					natEnabled: input.natEnabled ?? false,
+					gateway: input.gateway ?? null,
 				})
 				.returning()
 			return rows[0] ?? null
 		}),
+} satisfies TRPCRouterRecord
+
+/* ── Routes ── */
+
+const routesRouter = {
+	list: publicProcedure
+		.input(z.object({ deviceId: z.string() }))
+		.query(({ input }) =>
+			db
+				.select()
+				.from(schema.routes)
+				.where(eq(schema.routes.deviceId, input.deviceId)),
+		),
+
+	upsert: publicProcedure
+		.input(
+			z.object({
+				id: z.string().optional(),
+				deviceId: z.string(),
+				destination: z.string(),
+				nextHop: z.string(),
+				interfacePort: z.number().int().min(0).nullable().optional(),
+				metric: z.number().int().min(0).default(100),
+			}),
+		)
+		.mutation(async ({ input }) => {
+			if (!isValidIp(input.destination)) {
+				throw new Error(`Invalid destination format: ${input.destination}`)
+			}
+			if (!isValidIp(input.nextHop)) {
+				throw new Error(`Invalid next-hop format: ${input.nextHop}`)
+			}
+
+			if (input.id) {
+				const rows = await db
+					.update(schema.routes)
+					.set({
+						destination: input.destination,
+						nextHop: input.nextHop,
+						interfacePort: input.interfacePort ?? null,
+						metric: input.metric,
+					})
+					.where(eq(schema.routes.id, input.id))
+					.returning()
+				return rows[0] ?? null
+			}
+
+			const id = crypto.randomUUID()
+			const rows = await db
+				.insert(schema.routes)
+				.values({
+					id,
+					deviceId: input.deviceId,
+					destination: input.destination,
+					nextHop: input.nextHop,
+					interfacePort: input.interfacePort ?? null,
+					metric: input.metric,
+				})
+				.returning()
+			return rows[0] ?? null
+		}),
+
+	delete: publicProcedure
+		.input(z.object({ id: z.string() }))
+		.mutation(({ input }) =>
+			db.delete(schema.routes).where(eq(schema.routes.id, input.id)),
+		),
 } satisfies TRPCRouterRecord
 
 /* ── Annotations (barriers, rooms, labels) ── */
@@ -572,7 +629,8 @@ export const trpcRouter = createTRPCRouter({
 	workspaces: workspacesRouter,
 	devices: devicesRouter,
 	connections: connectionsRouter,
-	portConfigs: portConfigsRouter,
+	interfaces: interfacesRouter,
+	routes: routesRouter,
 	annotations: annotationsRouter,
 })
 
