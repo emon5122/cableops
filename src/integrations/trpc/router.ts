@@ -130,6 +130,345 @@ const workspacesRouter = {
 		.mutation(({ input }) =>
 			db.delete(schema.workspaces).where(eq(schema.workspaces.id, input.id)),
 		),
+
+	createShare: publicProcedure
+		.input(z.object({ workspaceId: z.string(), createdBy: z.string() }))
+		.mutation(async ({ input }) => {
+			const wsRows = await db
+				.select()
+				.from(schema.workspaces)
+				.where(eq(schema.workspaces.id, input.workspaceId));
+			const ws = wsRows[0];
+			if (!ws) throw new Error("Workspace not found");
+
+			const existing = await db
+				.select()
+				.from(schema.workspaceShares)
+				.where(eq(schema.workspaceShares.workspaceId, input.workspaceId));
+			if (existing[0]) return existing[0];
+
+			const id = crypto.randomUUID();
+			const token = crypto.randomUUID().replace(/-/g, "");
+			const rows = await db
+				.insert(schema.workspaceShares)
+				.values({
+					id,
+					workspaceId: input.workspaceId,
+					token,
+					createdBy: input.createdBy,
+				})
+				.returning();
+			const row = rows[0];
+			if (!row) throw new Error("Failed to create share link");
+			return row;
+		}),
+
+	resolveShare: publicProcedure
+		.input(z.object({ token: z.string().min(8) }))
+		.query(async ({ input }) => {
+			const rows = await db
+				.select()
+				.from(schema.workspaceShares)
+				.where(eq(schema.workspaceShares.token, input.token));
+			const share = rows[0];
+			if (!share) return null;
+
+			const wsRows = await db
+				.select()
+				.from(schema.workspaces)
+				.where(eq(schema.workspaces.id, share.workspaceId));
+			return wsRows[0]
+				? {
+					workspaceId: wsRows[0].id,
+					workspaceName: wsRows[0].name,
+				}
+				: null;
+		}),
+
+	exportSnapshot: publicProcedure
+		.input(z.object({ workspaceId: z.string() }))
+		.query(async ({ input }) => {
+			const wsRows = await db
+				.select()
+				.from(schema.workspaces)
+				.where(eq(schema.workspaces.id, input.workspaceId));
+			const workspace = wsRows[0];
+			if (!workspace) throw new Error("Workspace not found");
+
+			const devices = await db
+				.select()
+				.from(schema.devices)
+				.where(eq(schema.devices.workspaceId, input.workspaceId));
+			const deviceIds = devices.map((d) => d.id);
+
+			const connections = await db
+				.select()
+				.from(schema.connections)
+				.where(eq(schema.connections.workspaceId, input.workspaceId));
+
+			const annotations = await db
+				.select()
+				.from(schema.annotations)
+				.where(eq(schema.annotations.workspaceId, input.workspaceId));
+
+			const interfaces =
+				deviceIds.length > 0
+					? await db
+							.select()
+							.from(schema.interfaces)
+							.where(inArray(schema.interfaces.deviceId, deviceIds))
+					: [];
+
+			const routes =
+				deviceIds.length > 0
+					? await db
+							.select()
+							.from(schema.routes)
+							.where(inArray(schema.routes.deviceId, deviceIds))
+					: [];
+
+			return {
+				version: 1,
+				exportedAt: new Date().toISOString(),
+				workspace: {
+					id: workspace.id,
+					name: workspace.name,
+				},
+				devices,
+				interfaces,
+				connections,
+				routes,
+				annotations,
+			};
+		}),
+
+	importSnapshot: publicProcedure
+		.input(
+			z.object({
+				workspaceId: z.string(),
+				snapshot: z.object({
+					version: z.number(),
+					workspace: z.object({
+						name: z.string().optional(),
+					}),
+					devices: z.array(
+						z.object({
+							id: z.string(),
+							name: z.string(),
+							deviceType: z.string(),
+							color: z.string(),
+							portCount: z.number().int(),
+							positionX: z.number().int(),
+							positionY: z.number().int(),
+							maxSpeed: z.string().nullable().optional(),
+							ipForwarding: z.boolean().nullable().optional(),
+						}),
+					),
+					interfaces: z.array(
+						z.object({
+							id: z.string(),
+							deviceId: z.string(),
+							portNumber: z.number().int(),
+							alias: z.string().nullable().optional(),
+							reserved: z.boolean(),
+							reservedLabel: z.string().nullable().optional(),
+							speed: z.string().nullable().optional(),
+							vlan: z.number().int().nullable().optional(),
+							ipAddress: z.string().nullable().optional(),
+							macAddress: z.string().nullable().optional(),
+							portMode: z.string().nullable().optional(),
+							portRole: z.string().nullable().optional(),
+							dhcpEnabled: z.boolean().nullable().optional(),
+							dhcpRangeStart: z.string().nullable().optional(),
+							dhcpRangeEnd: z.string().nullable().optional(),
+							ssid: z.string().nullable().optional(),
+							wifiPassword: z.string().nullable().optional(),
+							natEnabled: z.boolean().nullable().optional(),
+							gateway: z.string().nullable().optional(),
+						}),
+					),
+					connections: z.array(
+						z.object({
+							id: z.string(),
+							deviceAId: z.string(),
+							portA: z.number().int(),
+							deviceBId: z.string(),
+							portB: z.number().int(),
+							speed: z.string().nullable().optional(),
+							connectionType: z.string().nullable().optional(),
+						}),
+					),
+					routes: z.array(
+						z.object({
+							id: z.string(),
+							deviceId: z.string(),
+							destination: z.string(),
+							nextHop: z.string(),
+							interfacePort: z.number().int().nullable().optional(),
+							metric: z.number().int().nullable().optional(),
+						}),
+					),
+					annotations: z.array(
+						z.object({
+							id: z.string(),
+							kind: z.string(),
+							label: z.string().nullable().optional(),
+							x: z.number().int(),
+							y: z.number().int(),
+							width: z.number().int(),
+							height: z.number().int(),
+							color: z.string(),
+						}),
+					),
+				}),
+			}),
+		)
+		.mutation(async ({ input }) => {
+			const wsRows = await db
+				.select()
+				.from(schema.workspaces)
+				.where(eq(schema.workspaces.id, input.workspaceId));
+			const ws = wsRows[0];
+			if (!ws) throw new Error("Workspace not found");
+
+			const currentDevices = await db
+				.select()
+				.from(schema.devices)
+				.where(eq(schema.devices.workspaceId, input.workspaceId));
+			const currentDeviceIds = currentDevices.map((d) => d.id);
+
+			if (currentDeviceIds.length > 0) {
+				await db
+					.delete(schema.interfaces)
+					.where(inArray(schema.interfaces.deviceId, currentDeviceIds));
+				await db
+					.delete(schema.routes)
+					.where(inArray(schema.routes.deviceId, currentDeviceIds));
+			}
+			await db
+				.delete(schema.connections)
+				.where(eq(schema.connections.workspaceId, input.workspaceId));
+			await db
+				.delete(schema.annotations)
+				.where(eq(schema.annotations.workspaceId, input.workspaceId));
+			await db
+				.delete(schema.devices)
+				.where(eq(schema.devices.workspaceId, input.workspaceId));
+
+			const deviceIdMap = new Map<string, string>();
+			for (const d of input.snapshot.devices) {
+				const newId = crypto.randomUUID();
+				deviceIdMap.set(d.id, newId);
+			}
+
+			if (input.snapshot.devices.length > 0) {
+				await db.insert(schema.devices).values(
+					input.snapshot.devices.map((d) => ({
+						id: deviceIdMap.get(d.id)!,
+						workspaceId: input.workspaceId,
+						name: d.name,
+						deviceType: d.deviceType,
+						color: d.color,
+						portCount: d.portCount,
+						positionX: d.positionX,
+						positionY: d.positionY,
+						maxSpeed: d.maxSpeed ?? null,
+						ipForwarding: d.ipForwarding ?? false,
+					})),
+				);
+			}
+
+			if (input.snapshot.interfaces.length > 0) {
+				await db.insert(schema.interfaces).values(
+					input.snapshot.interfaces
+						.map((i) => ({
+							id: crypto.randomUUID(),
+							deviceId: deviceIdMap.get(i.deviceId) ?? "",
+							portNumber: i.portNumber,
+							alias: i.alias ?? null,
+							reserved: i.reserved,
+							reservedLabel: i.reservedLabel ?? null,
+							speed: i.speed ?? null,
+							vlan: i.vlan ?? null,
+							ipAddress: i.ipAddress ?? null,
+							macAddress: i.macAddress ?? null,
+							portMode: i.portMode ?? null,
+							portRole: i.portRole ?? null,
+							dhcpEnabled: i.dhcpEnabled ?? false,
+							dhcpRangeStart: i.dhcpRangeStart ?? null,
+							dhcpRangeEnd: i.dhcpRangeEnd ?? null,
+							ssid: i.ssid ?? null,
+							wifiPassword: i.wifiPassword ?? null,
+							natEnabled: i.natEnabled ?? false,
+							gateway: i.gateway ?? null,
+						}))
+						.filter((i) => i.deviceId.length > 0),
+				);
+			}
+
+			if (input.snapshot.connections.length > 0) {
+				await db.insert(schema.connections).values(
+					input.snapshot.connections
+						.map((c) => ({
+							id: crypto.randomUUID(),
+							workspaceId: input.workspaceId,
+							deviceAId: deviceIdMap.get(c.deviceAId) ?? "",
+							portA: c.portA,
+							deviceBId: deviceIdMap.get(c.deviceBId) ?? "",
+							portB: c.portB,
+							speed: c.speed ?? null,
+							connectionType: c.connectionType ?? "wired",
+						}))
+						.filter(
+							(c) => c.deviceAId.length > 0 && c.deviceBId.length > 0,
+						),
+				);
+			}
+
+			if (input.snapshot.routes.length > 0) {
+				await db.insert(schema.routes).values(
+					input.snapshot.routes
+						.map((r) => ({
+							id: crypto.randomUUID(),
+							deviceId: deviceIdMap.get(r.deviceId) ?? "",
+							destination: r.destination,
+							nextHop: r.nextHop,
+							interfacePort: r.interfacePort ?? null,
+							metric: r.metric ?? 100,
+						}))
+						.filter((r) => r.deviceId.length > 0),
+				);
+			}
+
+			if (input.snapshot.annotations.length > 0) {
+				await db.insert(schema.annotations).values(
+					input.snapshot.annotations.map((a) => ({
+						id: crypto.randomUUID(),
+						workspaceId: input.workspaceId,
+						kind: a.kind,
+						label: a.label ?? null,
+						x: a.x,
+						y: a.y,
+						width: a.width,
+						height: a.height,
+						color: a.color,
+					})),
+				);
+			}
+
+			if (input.snapshot.workspace.name?.trim()) {
+				await db
+					.update(schema.workspaces)
+					.set({ name: input.snapshot.workspace.name.trim() })
+					.where(eq(schema.workspaces.id, input.workspaceId));
+			}
+
+			return {
+				success: true,
+				devicesImported: input.snapshot.devices.length,
+				connectionsImported: input.snapshot.connections.length,
+			};
+		}),
 } satisfies TRPCRouterRecord;
 
 /* ── Devices ── */

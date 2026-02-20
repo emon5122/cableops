@@ -1,19 +1,21 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, Cable, Folder, Network, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTRPC } from "@/integrations/trpc/react";
 import { authClient } from "@/lib/auth-client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { ArrowRight, Cable, Folder, Network, Plus, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
 
 export const Route = createFileRoute("/")({ component: Dashboard });
 
 function Dashboard() {
 	const { data: session, isPending: authLoading } = authClient.useSession();
 	const [newName, setNewName] = useState("");
+	const importInputRef = useRef<HTMLInputElement | null>(null);
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
+	const navigate = useNavigate();
 
 	const userId = session?.user?.id ?? "";
 
@@ -44,6 +46,42 @@ function Dashboard() {
 			},
 		}),
 	);
+
+	const importSnapshot = useMutation(
+		trpc.workspaces.importSnapshot.mutationOptions(),
+	);
+
+	const handleImportWorkspaceJson = async (file: File) => {
+		if (!userId) return;
+		try {
+			const text = await file.text();
+			const parsed = JSON.parse(text) as {
+				workspace?: { name?: string };
+			};
+
+			const importedName = parsed.workspace?.name?.trim();
+			const createdWorkspace = await createWorkspace.mutateAsync({
+				name: importedName && importedName.length > 0 ? importedName : "Imported workspace",
+				ownerId: userId,
+			});
+
+			await importSnapshot.mutateAsync({
+				workspaceId: createdWorkspace.id,
+				snapshot: parsed as never,
+			});
+
+			await queryClient.invalidateQueries({
+				queryKey: trpc.workspaces.list.queryKey({ ownerId: userId }),
+			});
+
+			void navigate({
+				to: "/workspace/$workspaceId",
+				params: { workspaceId: createdWorkspace.id },
+			});
+		} catch (error) {
+			console.error("Import failed", error);
+		}
+	};
 
 	/* ── Not signed in ── */
 	if (!authLoading && !session?.user) {
@@ -112,6 +150,8 @@ function Dashboard() {
 
 	/* ── Dashboard ── */
 	const workspaces = workspacesQuery.data ?? [];
+	const isImportingWorkspace =
+		createWorkspace.isPending || importSnapshot.isPending;
 
 	return (
 		<div className="min-h-full bg-(--app-bg) p-6">
@@ -122,6 +162,30 @@ function Dashboard() {
 						<p className="text-sm text-(--app-text-muted) mt-1">
 							Each workspace contains its own device topology
 						</p>
+					</div>
+					<div className="flex items-center gap-2">
+						<input
+							ref={importInputRef}
+							type="file"
+							accept="application/json,.json"
+							className="hidden"
+							onChange={(e) => {
+								const file = e.target.files?.[0];
+								if (file) {
+									void handleImportWorkspaceJson(file);
+								}
+								e.currentTarget.value = "";
+							}}
+						/>
+						<Button
+							type="button"
+							variant="outline"
+							disabled={isImportingWorkspace}
+							onClick={() => importInputRef.current?.click()}
+							className="border-(--app-border) text-(--app-text) hover:bg-(--app-surface-hover)"
+						>
+							Import JSON
+						</Button>
 					</div>
 				</div>
 

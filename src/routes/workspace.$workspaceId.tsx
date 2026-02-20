@@ -1,3 +1,15 @@
+import TopologyCanvas from "@/components/topology/TopologyCanvas";
+import ConnectionsTable from "@/components/workspace/ConnectionsTable";
+import NetworkInsights from "@/components/workspace/NetworkInsights";
+import WorkspaceSidebar from "@/components/workspace/WorkspaceSidebar";
+import { useTRPC } from "@/integrations/trpc/react";
+import { authClient } from "@/lib/auth-client";
+import type { DeviceType, InterfaceRow, RouteRow } from "@/lib/topology-types";
+import {
+	DEVICE_CAPABILITIES,
+	getNextDhcpIp,
+	isPortConnected,
+} from "@/lib/topology-types";
 import {
 	useMutation,
 	useQueries,
@@ -8,25 +20,17 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
 	Cable,
 	Check,
+	Download,
 	Lightbulb,
 	Network,
 	Pencil,
+	Share2,
 	Table2,
+	Upload,
+	Users,
 	X,
 } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
-import TopologyCanvas from "@/components/topology/TopologyCanvas";
-import ConnectionsTable from "@/components/workspace/ConnectionsTable";
-import NetworkInsights from "@/components/workspace/NetworkInsights";
-import WorkspaceSidebar from "@/components/workspace/WorkspaceSidebar";
-import { useTRPC } from "@/integrations/trpc/react";
-import { authClient } from "@/lib/auth-client";
-import type { DeviceType, InterfaceRow } from "@/lib/topology-types";
-import {
-	DEVICE_CAPABILITIES,
-	getNextDhcpIp,
-	isPortConnected,
-} from "@/lib/topology-types";
 
 export const Route = createFileRoute("/workspace/$workspaceId")({
 	component: WorkspacePage,
@@ -54,20 +58,35 @@ function WorkspacePage() {
 	const [editingWorkspaceName, setEditingWorkspaceName] = useState(false);
 	const [workspaceNameDraft, setWorkspaceNameDraft] = useState("");
 	const wsNameInputRef = useRef<HTMLInputElement>(null);
+	const importFileInputRef = useRef<HTMLInputElement>(null);
+	const [isLiveSyncEnabled, setIsLiveSyncEnabled] = useState(true);
+	const liveRefetchInterval: number | false = isLiveSyncEnabled ? 2000 : false;
 
 	/* ── Queries ── */
-	const workspaceQuery = useQuery(
-		trpc.workspaces.get.queryOptions({ id: workspaceId }),
-	);
-	const devicesQuery = useQuery(
-		trpc.devices.list.queryOptions({ workspaceId }),
-	);
-	const connectionsQuery = useQuery(
-		trpc.connections.list.queryOptions({ workspaceId }),
-	);
-	const annotationsQuery = useQuery(
-		trpc.annotations.list.queryOptions({ workspaceId }),
-	);
+	const workspaceQuery = useQuery({
+		...trpc.workspaces.get.queryOptions({ id: workspaceId }),
+		refetchInterval: liveRefetchInterval,
+		refetchIntervalInBackground: true,
+		refetchOnWindowFocus: true,
+	});
+	const devicesQuery = useQuery({
+		...trpc.devices.list.queryOptions({ workspaceId }),
+		refetchInterval: liveRefetchInterval,
+		refetchIntervalInBackground: true,
+		refetchOnWindowFocus: true,
+	});
+	const connectionsQuery = useQuery({
+		...trpc.connections.list.queryOptions({ workspaceId }),
+		refetchInterval: liveRefetchInterval,
+		refetchIntervalInBackground: true,
+		refetchOnWindowFocus: true,
+	});
+	const annotationsQuery = useQuery({
+		...trpc.annotations.list.queryOptions({ workspaceId }),
+		refetchInterval: liveRefetchInterval,
+		refetchIntervalInBackground: true,
+		refetchOnWindowFocus: true,
+	});
 
 	const devices = devicesQuery.data ?? [];
 	const connections = connectionsQuery.data ?? [];
@@ -75,9 +94,20 @@ function WorkspacePage() {
 
 	/* ── Interfaces (per-port config including IP, DHCP, WiFi, NAT) ── */
 	const interfaceQueries = useQueries({
-		queries: devices.map((d) =>
-			trpc.interfaces.list.queryOptions({ deviceId: d.id }),
-		),
+		queries: devices.map((d) => ({
+			...trpc.interfaces.list.queryOptions({ deviceId: d.id }),
+			refetchInterval: liveRefetchInterval,
+			refetchIntervalInBackground: true,
+			refetchOnWindowFocus: true,
+		})),
+	});
+	const routeQueries = useQueries({
+		queries: devices.map((d) => ({
+			...trpc.routes.list.queryOptions({ deviceId: d.id }),
+			refetchInterval: liveRefetchInterval,
+			refetchIntervalInBackground: true,
+			refetchOnWindowFocus: true,
+		})),
 	});
 
 	const portConfigs = useMemo<InterfaceRow[]>(() => {
@@ -87,6 +117,14 @@ function WorkspacePage() {
 		}
 		return all;
 	}, [interfaceQueries]);
+
+	const routes = useMemo<RouteRow[]>(() => {
+		const all: RouteRow[] = [];
+		for (const q of routeQueries) {
+			if (q.data) all.push(...q.data);
+		}
+		return all;
+	}, [routeQueries]);
 
 	/* ── Invalidation helper ── */
 	const invalidateAll = useCallback(() => {
@@ -102,6 +140,9 @@ function WorkspacePage() {
 		for (const d of devices) {
 			void queryClient.invalidateQueries({
 				queryKey: trpc.interfaces.list.queryKey({ deviceId: d.id }),
+			});
+			void queryClient.invalidateQueries({
+				queryKey: trpc.routes.list.queryKey({ deviceId: d.id }),
 			});
 		}
 	}, [queryClient, trpc, workspaceId, devices]);
@@ -146,6 +187,12 @@ function WorkspacePage() {
 				setEditingWorkspaceName(false);
 			},
 		}),
+	);
+	const createShare = useMutation(
+		trpc.workspaces.createShare.mutationOptions(),
+	);
+	const importSnapshot = useMutation(
+		trpc.workspaces.importSnapshot.mutationOptions({ onSuccess: invalidateAll }),
 	);
 
 	/* ── Port click (connect flow) ── */
@@ -335,6 +382,56 @@ function WorkspacePage() {
 		[deleteConnection],
 	);
 
+	const handleExportJson = useCallback(async () => {
+		try {
+			const snapshot = await queryClient.fetchQuery(
+				trpc.workspaces.exportSnapshot.queryOptions({ workspaceId }),
+			);
+			const json = JSON.stringify(snapshot, null, 2);
+			const blob = new Blob([json], { type: "application/json" });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = `${workspaceQuery.data?.name ?? "workspace"}-snapshot.json`;
+			document.body.appendChild(a);
+			a.click();
+			a.remove();
+			URL.revokeObjectURL(url);
+		} catch (error) {
+			console.error("Export failed", error);
+		}
+	}, [queryClient, trpc, workspaceId, workspaceQuery.data?.name]);
+
+	const handleImportJsonFile = useCallback(
+		async (file: File) => {
+			try {
+				const text = await file.text();
+				const parsed = JSON.parse(text) as unknown;
+				importSnapshot.mutate({
+					workspaceId,
+					snapshot: parsed as never,
+				});
+			} catch (error) {
+				console.error("Import failed", error);
+			}
+		},
+		[importSnapshot, workspaceId],
+	);
+
+	const handleShareWorkspace = useCallback(async () => {
+		if (!session?.user?.id) return;
+		try {
+			const share = await createShare.mutateAsync({
+				workspaceId,
+				createdBy: session.user.id,
+			});
+			const shareUrl = `${window.location.origin}/share/${share.token}`;
+			await navigator.clipboard.writeText(shareUrl);
+		} catch (error) {
+			console.error("Share creation failed", error);
+		}
+	}, [createShare, session?.user?.id, workspaceId]);
+
 	/* ── Auth guard ── */
 	if (!session?.user) {
 		return (
@@ -366,6 +463,18 @@ function WorkspacePage() {
 
 	return (
 		<div className="flex h-full overflow-hidden">
+			<input
+				ref={importFileInputRef}
+				type="file"
+				accept="application/json"
+				className="hidden"
+				onChange={(e) => {
+					const file = e.target.files?.[0];
+					if (file) void handleImportJsonFile(file);
+					e.currentTarget.value = "";
+				}}
+			/>
+
 			{/* Sidebar */}
 			<WorkspaceSidebar
 				devices={devices}
@@ -522,6 +631,47 @@ function WorkspacePage() {
 					>
 						<Lightbulb size={12} /> Insights
 					</button>
+
+					<div className="ml-auto flex items-center gap-1.5">
+						<button
+							type="button"
+							className="px-2 py-1 text-xs rounded-md text-(--app-text-muted) hover:text-white hover:bg-(--app-surface-hover) flex items-center gap-1"
+							onClick={handleExportJson}
+							title="Export workspace JSON"
+						>
+							<Download size={12} /> Export
+						</button>
+						<button
+							type="button"
+							className="px-2 py-1 text-xs rounded-md text-(--app-text-muted) hover:text-white hover:bg-(--app-surface-hover) flex items-center gap-1"
+							onClick={() => importFileInputRef.current?.click()}
+							title="Import JSON into this workspace (replaces current content)"
+						>
+							<Upload size={12} /> Import (Replace)
+						</button>
+						<button
+							type="button"
+							className="px-2 py-1 text-xs rounded-md text-(--app-text-muted) hover:text-white hover:bg-(--app-surface-hover) flex items-center gap-1"
+							onClick={() => {
+								void handleShareWorkspace();
+							}}
+							title="Create/copy share URL"
+						>
+							<Share2 size={12} /> Share URL
+						</button>
+						<button
+							type="button"
+							className={`px-2 py-1 text-xs rounded-md flex items-center gap-1 ${
+								isLiveSyncEnabled
+									? "text-emerald-300 bg-emerald-500/10"
+									: "text-(--app-text-muted) hover:text-white hover:bg-(--app-surface-hover)"
+							}`}
+							onClick={() => setIsLiveSyncEnabled((v) => !v)}
+							title="Toggle multi-collaborator live sync"
+						>
+							<Users size={12} /> {isLiveSyncEnabled ? "Live" : "Paused"}
+						</button>
+					</div>
 				</div>
 
 				{/* Content */}
@@ -573,6 +723,7 @@ function WorkspacePage() {
 						devices={devices}
 						connections={connections}
 						portConfigs={portConfigs}
+						routes={routes}
 					/>
 				)}
 			</div>

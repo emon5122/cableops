@@ -1,3 +1,19 @@
+import type {
+	ConnectionRow,
+	DeviceRow,
+	DeviceType,
+	InterfaceRow,
+	NetworkIssue,
+	RouteRow,
+} from "@/lib/topology-types";
+import {
+	analyzeNetwork,
+	DEVICE_CAPABILITIES,
+	DEVICE_TYPE_LABELS,
+	ipToString,
+	parseIp,
+	sameSubnet,
+} from "@/lib/topology-types";
 import {
 	AlertTriangle,
 	ArrowRight,
@@ -13,26 +29,12 @@ import {
 	Wifi,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
-import type {
-	ConnectionRow,
-	DeviceRow,
-	DeviceType,
-	InterfaceRow,
-	NetworkIssue,
-} from "@/lib/topology-types";
-import {
-	analyzeNetwork,
-	DEVICE_CAPABILITIES,
-	DEVICE_TYPE_LABELS,
-	ipToString,
-	parseIp,
-	sameSubnet,
-} from "@/lib/topology-types";
 
 interface NetworkInsightsProps {
 	devices: DeviceRow[];
 	connections: ConnectionRow[];
 	portConfigs: InterfaceRow[];
+	routes?: RouteRow[];
 }
 
 type InsightTab = "network" | "diagnostics";
@@ -169,6 +171,7 @@ export default function NetworkInsights({
 	devices,
 	connections,
 	portConfigs,
+	routes = [],
 }: NetworkInsightsProps) {
 	const [tab, setTab] = useState<InsightTab>("network");
 
@@ -220,8 +223,8 @@ export default function NetworkInsights({
 
 	/* ── Network analysis (segment engine) ── */
 	const analysis = useMemo(
-		() => analyzeNetwork(devices, connections, portConfigs),
-		[devices, connections, portConfigs],
+		() => analyzeNetwork(devices, connections, portConfigs, routes),
+		[devices, connections, portConfigs, routes],
 	);
 
 	const errors = useMemo(

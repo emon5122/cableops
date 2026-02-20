@@ -365,7 +365,6 @@ export type PortRole = (typeof PORT_ROLES)[number];
 
 /* ── Data models (inferred from Drizzle schema) ── */
 
-import type { InferSelectModel } from "drizzle-orm";
 import type {
 	annotations,
 	connections,
@@ -374,6 +373,7 @@ import type {
 	routes,
 	workspaces,
 } from "@/db/schema";
+import type { InferSelectModel } from "drizzle-orm";
 
 export type WorkspaceRow = InferSelectModel<typeof workspaces>;
 export type DeviceRow = InferSelectModel<typeof devices>;
@@ -719,7 +719,11 @@ export interface NetworkIssue {
 		| "unreachable_segment"
 		| "no_ip"
 		| "no_dhcp_match"
-		| "needs_forwarding";
+		| "needs_forwarding"
+		| "multiple_gateways"
+		| "dhcp_collision"
+		| "no_return_path"
+		| "nat_misconfigured";
 }
 
 export interface NetworkAnalysis {
@@ -735,6 +739,34 @@ export interface NetworkAnalysis {
  */
 function isL2Transparent(layer: DeviceCapabilities["layer"]): boolean {
 	return layer === 1 || layer === 2;
+}
+
+function getPortConfig(
+	deviceId: string,
+	portNumber: number,
+	portConfigs: PortConfigRow[],
+): PortConfigRow | undefined {
+	return portConfigs.find(
+		(pc) => pc.deviceId === deviceId && pc.portNumber === portNumber,
+	);
+}
+
+function getPortVlanId(
+	deviceId: string,
+	portNumber: number,
+	portConfigs: PortConfigRow[],
+): number {
+	const pc = getPortConfig(deviceId, portNumber, portConfigs);
+	return pc?.vlan ?? 1;
+}
+
+function portCarriesVlan(pc: PortConfigRow | undefined, vlanId: number): boolean {
+	const mode = pc?.portMode ?? "access";
+	if (mode === "trunk" || mode === "hybrid") {
+		if (pc?.vlan == null) return true;
+		return pc.vlan === vlanId;
+	}
+	return (pc?.vlan ?? 1) === vlanId;
 }
 
 /**
@@ -756,23 +788,46 @@ export function getNetworkSegment(
 	devices: DeviceRow[],
 	portConfigs: PortConfigRow[],
 ): NetworkSegment {
-	const visited = new Set<string>(); // "deviceId:portNumber"
-	const segmentPorts: SegmentPort[] = [];
-	let gateway: NetworkSegment["gateway"] = null;
-
-	const tryEnqueue = (queue: SegmentPort[], devId: string, port: number) => {
-		const key = `${devId}:${port}`;
-		if (!visited.has(key)) queue.push({ deviceId: devId, portNumber: port });
+	type QueueItem = {
+		deviceId: string;
+		portNumber: number;
+		vlanId: number;
 	};
 
-	const queue: SegmentPort[] = [{ deviceId, portNumber }];
+	const visited = new Set<string>(); // "deviceId:portNumber:vlanId"
+	const segmentPorts: SegmentPort[] = [];
+	const segmentPortSet = new Set<string>();
+	let gateway: NetworkSegment["gateway"] = null;
+
+	const tryEnqueue = (
+		queue: QueueItem[],
+		devId: string,
+		port: number,
+		vlanId: number,
+	) => {
+		const key = `${devId}:${port}:${vlanId}`;
+		if (!visited.has(key)) {
+			queue.push({ deviceId: devId, portNumber: port, vlanId });
+		}
+	};
+
+	const initialVlan = getPortVlanId(deviceId, portNumber, portConfigs);
+	const queue: QueueItem[] = [{ deviceId, portNumber, vlanId: initialVlan }];
 
 	while (queue.length > 0) {
 		const current = queue.shift()!;
-		const key = `${current.deviceId}:${current.portNumber}`;
+		const key = `${current.deviceId}:${current.portNumber}:${current.vlanId}`;
 		if (visited.has(key)) continue;
 		visited.add(key);
-		segmentPorts.push(current);
+
+		const segmentPortKey = `${current.deviceId}:${current.portNumber}`;
+		if (!segmentPortSet.has(segmentPortKey)) {
+			segmentPortSet.add(segmentPortKey);
+			segmentPorts.push({
+				deviceId: current.deviceId,
+				portNumber: current.portNumber,
+			});
+		}
 
 		const dev = devices.find((d) => d.id === current.deviceId);
 		if (!dev) continue;
@@ -814,19 +869,41 @@ export function getNetworkSegment(
 			conn.deviceAId === current.deviceId ? conn.deviceBId : conn.deviceAId;
 		const peerPort =
 			conn.deviceAId === current.deviceId ? conn.portB : conn.portA;
+		const currentPc = getPortConfig(
+			current.deviceId,
+			current.portNumber,
+			portConfigs,
+		);
+		const peerPc = getPortConfig(peerId, peerPort, portConfigs);
 
-		// Add the peer's specific port to this segment
-		tryEnqueue(queue, peerId, peerPort);
+		// Add the peer's specific port if VLAN can traverse this link
+		if (
+			portCarriesVlan(currentPc, current.vlanId) &&
+			portCarriesVlan(peerPc, current.vlanId)
+		) {
+			tryEnqueue(queue, peerId, peerPort, current.vlanId);
+		}
 
 		// If the peer is L2-transparent, ALL its other connected ports are also
-		// part of this same segment (switch/hub bridge traffic between ports)
+		// part of this same segment (switch/hub bridge traffic between ports),
+		// but only for VLAN-compatible ports.
 		const peerDev = devices.find((d) => d.id === peerId);
 		if (peerDev) {
 			const peerCaps = DEVICE_CAPABILITIES[peerDev.deviceType as DeviceType];
 			if (peerCaps && isL2Transparent(peerCaps.layer)) {
 				for (const c of connections) {
-					if (c.deviceAId === peerId) tryEnqueue(queue, peerId, c.portA);
-					if (c.deviceBId === peerId) tryEnqueue(queue, peerId, c.portB);
+					if (c.deviceAId === peerId) {
+						const pc = getPortConfig(peerId, c.portA, portConfigs);
+						if (portCarriesVlan(pc, current.vlanId)) {
+							tryEnqueue(queue, peerId, c.portA, current.vlanId);
+						}
+					}
+					if (c.deviceBId === peerId) {
+						const pc = getPortConfig(peerId, c.portB, portConfigs);
+						if (portCarriesVlan(pc, current.vlanId)) {
+							tryEnqueue(queue, peerId, c.portB, current.vlanId);
+						}
+					}
 				}
 			}
 		}
@@ -866,7 +943,7 @@ export function discoverAllSegments(
 	connections: ConnectionRow[],
 	portConfigs: PortConfigRow[],
 ): NetworkSegment[] {
-	const visited = new Set<string>(); // "deviceId:portNumber"
+	const visited = new Set<string>(); // "deviceId:portNumber:vlanId"
 	const segments: NetworkSegment[] = [];
 	let idx = 0;
 
@@ -875,7 +952,8 @@ export function discoverAllSegments(
 			[conn.deviceAId, conn.portA],
 			[conn.deviceBId, conn.portB],
 		] as [string, number][]) {
-			const key = `${devId}:${port}`;
+			const vlanId = getPortVlanId(devId, port, portConfigs);
+			const key = `${devId}:${port}:${vlanId}`;
 			if (visited.has(key)) continue;
 
 			const seg = getNetworkSegment(
@@ -886,8 +964,10 @@ export function discoverAllSegments(
 				portConfigs,
 			);
 			seg.id = `seg-${idx++}`;
-			for (const sp of seg.ports)
-				visited.add(`${sp.deviceId}:${sp.portNumber}`);
+			for (const sp of seg.ports) {
+				const svlan = getPortVlanId(sp.deviceId, sp.portNumber, portConfigs);
+				visited.add(`${sp.deviceId}:${sp.portNumber}:${svlan}`);
+			}
 			segments.push(seg);
 		}
 	}
@@ -902,6 +982,7 @@ export function analyzeNetwork(
 	devices: DeviceRow[],
 	connections: ConnectionRow[],
 	portConfigs: PortConfigRow[],
+	routes: RouteRow[] = [],
 ): NetworkAnalysis {
 	const segments = discoverAllSegments(devices, connections, portConfigs);
 	const issues: NetworkIssue[] = [];
@@ -916,6 +997,40 @@ export function analyzeNetwork(
 
 	/* ── 1. Subnet mismatch: port IPs must match their segment gateway ── */
 	for (const seg of segments) {
+		const gatewayCandidates = seg.ports
+			.map((sp) => {
+				const dev = devices.find((d) => d.id === sp.deviceId);
+				if (!dev) return null;
+				const caps = DEVICE_CAPABILITIES[dev.deviceType as DeviceType];
+				if (!caps?.canBeGateway) return null;
+				const iface = portConfigs.find(
+					(pc) =>
+						pc.deviceId === sp.deviceId &&
+						pc.portNumber === sp.portNumber &&
+						pc.ipAddress,
+				);
+				if (!iface?.ipAddress || !parseIp(iface.ipAddress)) return null;
+				return { deviceId: sp.deviceId, portNumber: sp.portNumber, ip: iface.ipAddress };
+			})
+			.filter((v): v is { deviceId: string; portNumber: number; ip: string } =>
+				Boolean(v),
+			);
+
+		if (gatewayCandidates.length > 1) {
+			const labels = gatewayCandidates
+				.map((g) => {
+					const dev = devices.find((d) => d.id === g.deviceId);
+					return `${dev?.name ?? g.deviceId} P${g.portNumber}`;
+				})
+				.join(", ");
+			issues.push({
+				severity: "warning",
+				deviceId: gatewayCandidates[0].deviceId,
+				message: `Multiple gateways detected in segment ${seg.subnet ?? seg.id}: ${labels}`,
+				type: "multiple_gateways",
+			});
+		}
+
 		if (!seg.gateway) continue;
 		const gw = seg.gateway;
 
@@ -982,15 +1097,25 @@ export function analyzeNetwork(
 	/* ── 2. No gateway: segments with IPs but no L3 device ── */
 	for (const seg of segments) {
 		if (seg.gateway) continue;
-		const hasIp = seg.ports.some((sp) =>
-			portConfigs.some(
-				(pc) =>
-					pc.deviceId === sp.deviceId &&
-					pc.portNumber === sp.portNumber &&
-					pc.ipAddress,
-			),
-		);
-		if (!hasIp) continue;
+		const parsedIps = seg.ports
+			.map((sp) =>
+				portConfigs.find(
+					(pc) =>
+						pc.deviceId === sp.deviceId &&
+						pc.portNumber === sp.portNumber &&
+						pc.ipAddress,
+				)?.ipAddress,
+			)
+			.filter((v): v is string => Boolean(v))
+			.map((ip) => parseIp(ip))
+			.filter((v): v is { ip: number; cidr: number; network: number; mask: number } =>
+				Boolean(v),
+			);
+
+		if (parsedIps.length === 0) continue;
+
+		/* /31 and /32 are edge point-to-point / host routes: no-gateway warning is noisy */
+		if (parsedIps.every((p) => p.cidr >= 31)) continue;
 
 		const names = [
 			...new Set(
@@ -1036,43 +1161,198 @@ export function analyzeNetwork(
 		}
 	}
 
-	/* ── 4. Cross-segment reachability ── */
+	/* ── 4. Cross-segment reachability (route-aware, multi-hop capable) ── */
 	if (segments.length > 1) {
-		// Build graph: two segments are connected if the SAME L3 device has a
-		// port in each (it can route between them)
 		const adj = new Map<string, Set<string>>();
 		for (const s of segments) adj.set(s.id, new Set());
+		const natOneWayEdges = new Set<string>();
 
-		for (let i = 0; i < segments.length; i++) {
-			for (let j = i + 1; j < segments.length; j++) {
-				const a = segments[i];
-				const b = segments[j];
-				const l3InA = new Set(
-					a.ports
-						.filter((sp) => {
-							const d = devices.find((dd) => dd.id === sp.deviceId);
-							if (!d) return false;
-							const c = DEVICE_CAPABILITIES[d.deviceType as DeviceType];
-							return c && (c.canBeGateway || c.layer === 3);
-						})
-						.map((sp) => sp.deviceId),
+		type RouteEntry = {
+			destination: { ip: number; cidr: number; network: number; mask: number };
+			egressPort: number;
+			metric: number;
+		};
+
+		const getRepresentativeIp = (seg: NetworkSegment): number | null => {
+			if (seg.gateway?.ip) {
+				const parsed = parseIp(seg.gateway.ip);
+				if (parsed) return parsed.ip;
+			}
+			for (const sp of seg.ports) {
+				const iface = portConfigs.find(
+					(pc) =>
+						pc.deviceId === sp.deviceId &&
+						pc.portNumber === sp.portNumber &&
+						pc.ipAddress,
 				);
-				const bridged = b.ports.some((sp) => {
-					const d = devices.find((dd) => dd.id === sp.deviceId);
-					if (!d) return false;
-					const c = DEVICE_CAPABILITIES[d.deviceType as DeviceType];
-					return (
-						c && (c.canBeGateway || c.layer === 3) && l3InA.has(sp.deviceId)
-					);
+				if (!iface?.ipAddress) continue;
+				const parsed = parseIp(iface.ipAddress);
+				if (parsed) return parsed.ip;
+			}
+			return null;
+		};
+
+		const routesByDevice = new Map<string, RouteEntry[]>();
+		for (const dev of devices) {
+			const entries: RouteEntry[] = [];
+
+			for (const iface of portConfigs) {
+				if (iface.deviceId !== dev.id || !iface.ipAddress) continue;
+				const parsed = parseIp(iface.ipAddress);
+				if (!parsed) continue;
+				entries.push({
+					destination: parsed,
+					egressPort: iface.portNumber,
+					metric: 0,
 				});
-				if (bridged) {
-					adj.get(a.id)?.add(b.id);
-					adj.get(b.id)?.add(a.id);
+			}
+
+			for (const r of routes.filter((rr) => rr.deviceId === dev.id)) {
+				const parsedDest = parseIp(r.destination);
+				if (!parsedDest) continue;
+
+				let egressPort = r.interfacePort ?? null;
+				if (egressPort == null) {
+					const nextHop = parseIpPlain(r.nextHop);
+					if (nextHop !== null) {
+						for (const iface of portConfigs) {
+							if (iface.deviceId !== dev.id || !iface.ipAddress) continue;
+							const parsedIface = parseIp(iface.ipAddress);
+							if (!parsedIface) continue;
+							if (
+								((nextHop & parsedIface.mask) >>> 0) === parsedIface.network
+							) {
+								egressPort = iface.portNumber;
+								break;
+							}
+						}
+					}
+				}
+
+				if (egressPort == null) continue;
+
+				entries.push({
+					destination: parsedDest,
+					egressPort,
+					metric: r.metric ?? 100,
+				});
+			}
+
+			routesByDevice.set(dev.id, entries);
+		}
+
+		const selectBestRoute = (
+			deviceId: string,
+			targetIp: number,
+		): RouteEntry | null => {
+			const entries = routesByDevice.get(deviceId) ?? [];
+			const matches = entries.filter(
+				(entry) =>
+					((targetIp & entry.destination.mask) >>> 0) === entry.destination.network,
+			);
+			if (matches.length === 0) return null;
+			matches.sort((a, b) => {
+				if (b.destination.cidr !== a.destination.cidr) {
+					return b.destination.cidr - a.destination.cidr;
+				}
+				return a.metric - b.metric;
+			});
+			return matches[0] ?? null;
+		};
+
+		const segmentHasCloud = (seg: NetworkSegment): boolean =>
+			seg.ports.some((sp) => {
+				const d = devices.find((dev) => dev.id === sp.deviceId);
+				return d?.deviceType === "cloud";
+			});
+
+		for (const dev of devices) {
+			if (!dev.ipForwarding) continue;
+
+			const devSegmentIds = new Set<string>();
+			for (const seg of segments) {
+				if (seg.ports.some((sp) => sp.deviceId === dev.id)) {
+					devSegmentIds.add(seg.id);
+				}
+			}
+			if (devSegmentIds.size < 2) continue;
+
+			for (const ingressId of devSegmentIds) {
+				const ingressSeg = segments.find((s) => s.id === ingressId);
+				if (!ingressSeg) continue;
+				const ingressIp = getRepresentativeIp(ingressSeg);
+
+				for (const targetSeg of segments) {
+					if (targetSeg.id === ingressId) continue;
+					const targetIp = getRepresentativeIp(targetSeg);
+					if (targetIp === null) continue;
+
+					const forwardRoute = selectBestRoute(dev.id, targetIp);
+					if (!forwardRoute) continue;
+
+					if (ingressIp !== null && !selectBestRoute(dev.id, ingressIp)) {
+						continue;
+					}
+
+					const outSeg = portToSegment.get(
+						`${dev.id}:${forwardRoute.egressPort}`,
+					);
+					if (!outSeg || outSeg.id === ingressId) continue;
+
+					adj.get(ingressId)?.add(outSeg.id);
+				}
+			}
+
+			/* NAT egress enables one-way outbound reachability to cloud-facing segment */
+			const natIfaces = portConfigs.filter(
+				(pc) => pc.deviceId === dev.id && pc.natEnabled,
+			);
+			for (const natIface of natIfaces) {
+				const outSeg = portToSegment.get(`${dev.id}:${natIface.portNumber}`);
+				if (!outSeg) continue;
+				if (!segmentHasCloud(outSeg)) continue;
+
+				for (const ingressId of devSegmentIds) {
+					if (ingressId === outSeg.id) continue;
+					adj.get(ingressId)?.add(outSeg.id);
+					natOneWayEdges.add(`${ingressId}->${outSeg.id}`);
 				}
 			}
 		}
 
-		// Find isolated groups via BFS
+		/* Return-path diagnostics (except NAT-intended one-way edges) */
+		for (const [src, targets] of adj) {
+			for (const dst of targets) {
+				if (adj.get(dst)?.has(src)) continue;
+				if (natOneWayEdges.has(`${src}->${dst}`)) continue;
+
+				const srcSeg = segments.find((s) => s.id === src);
+				if (!srcSeg) continue;
+				issues.push({
+					severity: "warning",
+					deviceId: srcSeg.ports[0]?.deviceId ?? "",
+					message: `Route path exists from ${srcSeg.subnet ?? src} to ${segments.find((s) => s.id === dst)?.subnet ?? dst} but no return path was found`,
+					type: "no_return_path",
+				});
+			}
+		}
+
+		const undirected = new Map<string, Set<string>>();
+		for (const s of segments) undirected.set(s.id, new Set());
+		for (const [src, targets] of adj) {
+			for (const dst of targets) {
+				const bidirectional = adj.get(dst)?.has(src) ?? false;
+				const natReachable =
+					natOneWayEdges.has(`${src}->${dst}`) ||
+					natOneWayEdges.has(`${dst}->${src}`);
+				if (bidirectional || natReachable) {
+					undirected.get(src)?.add(dst);
+					undirected.get(dst)?.add(src);
+				}
+			}
+		}
+
+		// Find isolated groups via BFS on the computed segment graph
 		const seen = new Set<string>();
 		const groups: string[][] = [];
 		for (const seg of segments) {
@@ -1084,7 +1364,7 @@ export function analyzeNetwork(
 				if (seen.has(cur)) continue;
 				seen.add(cur);
 				group.push(cur);
-				for (const nb of adj.get(cur) ?? []) {
+				for (const nb of undirected.get(cur) ?? []) {
 					if (!seen.has(nb)) q.push(nb);
 				}
 			}
@@ -1136,12 +1416,14 @@ export function analyzeNetwork(
 		}
 	}
 
-	/* ── 6. DHCP range vs. port subnet ── */
+	/* ── 6. DHCP range vs. subnet + static collision ── */
 	for (const iface of portConfigs) {
 		if (!iface.dhcpEnabled || !iface.dhcpRangeStart || !iface.dhcpRangeEnd)
 			continue;
 		const start = parseIpPlain(iface.dhcpRangeStart);
+		const end = parseIpPlain(iface.dhcpRangeEnd);
 		if (start === null) continue;
+		if (end === null) continue;
 
 		/* Check if this interface's own IP subnet matches the DHCP range */
 		if (!iface.ipAddress) continue;
@@ -1156,6 +1438,77 @@ export function analyzeNetwork(
 				portNumber: iface.portNumber,
 				message: `${dev?.name ?? "Device"} port ${iface.portNumber} subnet ${ipToString(parsed.network)}/${parsed.cidr} doesn't match DHCP range ${iface.dhcpRangeStart}–${iface.dhcpRangeEnd}`,
 				type: "no_dhcp_match",
+			});
+			continue;
+		}
+
+		const seg = portToSegment.get(`${iface.deviceId}:${iface.portNumber}`);
+		if (!seg) continue;
+
+		for (const sp of seg.ports) {
+			if (sp.deviceId === iface.deviceId && sp.portNumber === iface.portNumber)
+				continue;
+			const other = portConfigs.find(
+				(pc) =>
+					pc.deviceId === sp.deviceId &&
+					pc.portNumber === sp.portNumber &&
+					pc.ipAddress,
+			);
+			if (!other?.ipAddress) continue;
+			const otherPlain = parseIpPlain(other.ipAddress.split("/")[0]);
+			if (otherPlain === null) continue;
+			if (otherPlain >= start && otherPlain <= end) {
+				const dev = devices.find((d) => d.id === sp.deviceId);
+				issues.push({
+					severity: "warning",
+					deviceId: iface.deviceId,
+					portNumber: iface.portNumber,
+					message: `DHCP range ${iface.dhcpRangeStart}–${iface.dhcpRangeEnd} overlaps static IP ${other.ipAddress} on ${dev?.name ?? sp.deviceId} P${sp.portNumber}`,
+					type: "dhcp_collision",
+				});
+			}
+		}
+	}
+
+	/* ── 7. NAT sanity checks ── */
+	for (const iface of portConfigs) {
+		if (!iface.natEnabled) continue;
+		const dev = devices.find((d) => d.id === iface.deviceId);
+		if (!dev) continue;
+
+		if (!dev.ipForwarding) {
+			issues.push({
+				severity: "warning",
+				deviceId: dev.id,
+				portNumber: iface.portNumber,
+				message: `${dev.name} has NAT enabled on port ${iface.portNumber} but IP forwarding is disabled`,
+				type: "nat_misconfigured",
+			});
+		}
+
+		const outSeg = portToSegment.get(`${iface.deviceId}:${iface.portNumber}`);
+		if (!outSeg) {
+			issues.push({
+				severity: "warning",
+				deviceId: dev.id,
+				portNumber: iface.portNumber,
+				message: `${dev.name} NAT interface port ${iface.portNumber} is not connected to any segment`,
+				type: "nat_misconfigured",
+			});
+			continue;
+		}
+
+		const hasCloudUplink = outSeg.ports.some((sp) => {
+			const d = devices.find((dd) => dd.id === sp.deviceId);
+			return d?.deviceType === "cloud";
+		});
+		if (!hasCloudUplink) {
+			issues.push({
+				severity: "info",
+				deviceId: dev.id,
+				portNumber: iface.portNumber,
+				message: `${dev.name} NAT on port ${iface.portNumber} is not on a cloud-facing segment`,
+				type: "nat_misconfigured",
 			});
 		}
 	}

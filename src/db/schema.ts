@@ -81,6 +81,25 @@ export const workspaces = pgTable(
 	}),
 );
 
+export const workspaceShares = pgTable(
+	"workspace_shares",
+	{
+		id: text("id").primaryKey(),
+		workspaceId: text("workspace_id")
+			.notNull()
+			.references(() => workspaces.id, { onDelete: "cascade" }),
+		token: text("token").notNull(),
+		createdBy: text("created_by")
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		createdAt: timestamp("created_at").defaultNow(),
+	},
+	(table) => ({
+		workspaceIdx: index("workspace_shares_workspace_idx").on(table.workspaceId),
+		tokenUnique: uniqueIndex("workspace_shares_token_uq").on(table.token),
+	}),
+);
+
 export const devices = pgTable(
 	"devices",
 	{

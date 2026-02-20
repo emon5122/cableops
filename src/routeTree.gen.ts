@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkspaceWorkspaceIdRouteImport } from './routes/workspace.$workspaceId'
+import { Route as ShareShareTokenRouteImport } from './routes/share.$shareToken'
 import { Route as AuthSignUpRouteImport } from './routes/auth/sign-up'
 import { Route as AuthSignInRouteImport } from './routes/auth/sign-in'
 import { Route as ApiTrpcSplatRouteImport } from './routes/api.trpc.$'
@@ -24,6 +25,11 @@ const IndexRoute = IndexRouteImport.update({
 const WorkspaceWorkspaceIdRoute = WorkspaceWorkspaceIdRouteImport.update({
   id: '/workspace/$workspaceId',
   path: '/workspace/$workspaceId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ShareShareTokenRoute = ShareShareTokenRouteImport.update({
+  id: '/share/$shareToken',
+  path: '/share/$shareToken',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthSignUpRoute = AuthSignUpRouteImport.update({
@@ -51,6 +57,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/auth/sign-up': typeof AuthSignUpRoute
+  '/share/$shareToken': typeof ShareShareTokenRoute
   '/workspace/$workspaceId': typeof WorkspaceWorkspaceIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
@@ -59,6 +66,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/auth/sign-up': typeof AuthSignUpRoute
+  '/share/$shareToken': typeof ShareShareTokenRoute
   '/workspace/$workspaceId': typeof WorkspaceWorkspaceIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
@@ -68,6 +76,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/auth/sign-up': typeof AuthSignUpRoute
+  '/share/$shareToken': typeof ShareShareTokenRoute
   '/workspace/$workspaceId': typeof WorkspaceWorkspaceIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
@@ -78,6 +87,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth/sign-in'
     | '/auth/sign-up'
+    | '/share/$shareToken'
     | '/workspace/$workspaceId'
     | '/api/auth/$'
     | '/api/trpc/$'
@@ -86,6 +96,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth/sign-in'
     | '/auth/sign-up'
+    | '/share/$shareToken'
     | '/workspace/$workspaceId'
     | '/api/auth/$'
     | '/api/trpc/$'
@@ -94,6 +105,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth/sign-in'
     | '/auth/sign-up'
+    | '/share/$shareToken'
     | '/workspace/$workspaceId'
     | '/api/auth/$'
     | '/api/trpc/$'
@@ -103,6 +115,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthSignInRoute: typeof AuthSignInRoute
   AuthSignUpRoute: typeof AuthSignUpRoute
+  ShareShareTokenRoute: typeof ShareShareTokenRoute
   WorkspaceWorkspaceIdRoute: typeof WorkspaceWorkspaceIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiTrpcSplatRoute: typeof ApiTrpcSplatRoute
@@ -122,6 +135,13 @@ declare module '@tanstack/react-router' {
       path: '/workspace/$workspaceId'
       fullPath: '/workspace/$workspaceId'
       preLoaderRoute: typeof WorkspaceWorkspaceIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/share/$shareToken': {
+      id: '/share/$shareToken'
+      path: '/share/$shareToken'
+      fullPath: '/share/$shareToken'
+      preLoaderRoute: typeof ShareShareTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth/sign-up': {
@@ -159,6 +179,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthSignInRoute: AuthSignInRoute,
   AuthSignUpRoute: AuthSignUpRoute,
+  ShareShareTokenRoute: ShareShareTokenRoute,
   WorkspaceWorkspaceIdRoute: WorkspaceWorkspaceIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiTrpcSplatRoute: ApiTrpcSplatRoute,
