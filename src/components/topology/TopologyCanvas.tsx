@@ -466,8 +466,13 @@ export default function TopologyCanvas({
 		return byPair;
 	}, [connections]);
 
-	const activeConnectionIds = useMemo(() => {
-		if (connections.length === 0) return new Set<string>();
+	const { activeConnectionIds, connectionIssueById } = useMemo(() => {
+		if (connections.length === 0) {
+			return {
+				activeConnectionIds: new Set<string>(),
+				connectionIssueById: new Map<string, string>(),
+			};
+		}
 
 		const segments = discoverAllSegments(devices, connections, portConfigs);
 		const segmentPortSets = new Map<string, Set<string>>();
@@ -483,6 +488,7 @@ export default function TopologyCanvas({
 		}
 
 		const viableSegmentIds = new Set<string>();
+		const segmentIssueById = new Map<string, string>();
 		for (const seg of segments) {
 			const ips = seg.ports
 				.map((sp) =>
@@ -512,21 +518,45 @@ export default function TopologyCanvas({
 					iface.dhcpRangeEnd
 				);
 			});
+			const hasIps = ips.length > 0;
 
-			if (seg.gateway || hasSameSubnetPeers || (hasDhcpServer && seg.ports.length > 1)) {
+			const isViable =
+				!!(seg.gateway || hasSameSubnetPeers || (hasDhcpServer && seg.ports.length > 1));
+			if (isViable) {
 				viableSegmentIds.add(seg.id);
+			} else if (hasIps && !hasSameSubnetPeers) {
+				segmentIssueById.set(seg.id, "Subnet");
+			} else if (!hasDhcpServer) {
+				segmentIssueById.set(seg.id, "No DHCP");
+			} else {
+				segmentIssueById.set(seg.id, "No GW");
 			}
 		}
 
 		const connectionToSegmentId = new Map<string, string>();
+		const connectionIssueById = new Map<string, string>();
 		for (const conn of connections) {
 			const aKey = `${conn.deviceAId}:${conn.portA}`;
 			const bKey = `${conn.deviceBId}:${conn.portB}`;
+			let assigned = false;
 			for (const [segId, keySet] of segmentPortSets) {
 				if (keySet.has(aKey) && keySet.has(bKey)) {
 					connectionToSegmentId.set(conn.id, segId);
+					assigned = true;
 					break;
 				}
+			}
+			if (!assigned) {
+				connectionIssueById.set(conn.id, "VLAN");
+			}
+		}
+
+		for (const conn of connections) {
+			if (connectionIssueById.has(conn.id)) continue;
+			const segId = connectionToSegmentId.get(conn.id);
+			if (!segId) continue;
+			if (!viableSegmentIds.has(segId)) {
+				connectionIssueById.set(conn.id, segmentIssueById.get(segId) ?? "No GW");
 			}
 		}
 
@@ -580,7 +610,10 @@ export default function TopologyCanvas({
 				);
 				if (aHasIp && bHasIp) fallback.add(conn.id);
 			}
-			return fallback;
+			return {
+				activeConnectionIds: fallback,
+				connectionIssueById,
+			};
 		}
 
 		const getPath = (fromId: string, toId: string): string[] | null => {
@@ -629,7 +662,10 @@ export default function TopologyCanvas({
 			}
 		}
 
-		return active;
+		return {
+			activeConnectionIds: active,
+			connectionIssueById,
+		};
 	}, [connections, devices, portConfigs, connectionLookup]);
 
 	const getPathAnchor = useCallback((path: string) => {
@@ -1299,6 +1335,8 @@ export default function TopologyCanvas({
 							((capsA?.wifiHost && capsB?.wifiClient) ||
 								(capsB?.wifiHost && capsA?.wifiClient)));
 					const isFlowActive = activeConnectionIds.has(conn.id);
+					const issueTag = connectionIssueById.get(conn.id) ?? null;
+					const isInvalid = !!issueTag;
 
 					return (
 						<g key={conn.id}>
@@ -1320,7 +1358,7 @@ export default function TopologyCanvas({
 								stroke={`url(#wire-grad-${conn.id})`}
 								strokeWidth={isWireSel ? 8 : 5}
 								fill="none"
-								opacity={isWireSel ? 0.35 : 0.15}
+								opacity={isWireSel ? 0.35 : isInvalid ? 0.07 : 0.15}
 								strokeLinecap="round"
 								strokeDasharray={isWifi ? "8 6" : undefined}
 								style={{ pointerEvents: "none" }}
@@ -1331,7 +1369,7 @@ export default function TopologyCanvas({
 								stroke={isWireSel ? "#fff" : `url(#wire-grad-${conn.id})`}
 								strokeWidth={isWireSel ? 3 : 2.5}
 								fill="none"
-								opacity={0.85}
+								opacity={isInvalid ? 0.35 : 0.85}
 								strokeLinecap="round"
 								strokeDasharray={isWifi ? "8 6" : undefined}
 								style={{ pointerEvents: "none" }}
@@ -1473,6 +1511,32 @@ export default function TopologyCanvas({
 										style={{ pointerEvents: "none", userSelect: "none" }}
 									>
 										{wireMeta.join("  •  ").slice(0, 46)}
+									</text>
+								</g>
+							)}
+							{isInvalid && (
+								<g
+									transform={`translate(${midX + normalX * (isWifi ? 46 : 34)},${midY + normalY * (isWifi ? 46 : 34)})`}
+								>
+									<rect
+										x={-24}
+										y={-8}
+										rx={5}
+										width={48}
+										height={16}
+										fill="rgba(127, 29, 29, 0.85)"
+										stroke="rgba(248, 113, 113, 0.6)"
+										strokeWidth={1}
+									/>
+									<text
+										textAnchor="middle"
+										y={3}
+										fill="#fecaca"
+										fontSize={8.4}
+										fontWeight={700}
+										style={{ pointerEvents: "none", userSelect: "none" }}
+									>
+										{issueTag}
 									</text>
 								</g>
 							)}
