@@ -6,6 +6,7 @@ import {
 	type ConnectionRow,
 	DEVICE_CAPABILITIES,
 	DEVICE_NODE_WIDTH,
+	DEVICE_TYPE_LABELS,
 	type DeviceRow,
 	type DeviceType,
 	type DragState,
@@ -669,6 +670,27 @@ export default function TopologyCanvas({
 				const nodeHeight = getDeviceNodeHeight(device.portCount);
 				const isSelected = selectedDeviceId === device.id;
 				const textColor = luminance(device.color) > 0.5 ? "#000" : "#fff";
+				const caps = DEVICE_CAPABILITIES[device.deviceType as DeviceType];
+				const typeLabel =
+					DEVICE_TYPE_LABELS[device.deviceType as DeviceType] ?? device.deviceType;
+				const layerLabel =
+					caps.layer === "endpoint" ? "ENDPOINT" : String(caps.layer).toUpperCase();
+				const layerTone =
+					caps.layer === 3
+						? "#60a5fa"
+						: caps.layer === 2
+							? "#22d3ee"
+							: caps.layer === 1
+								? "#f59e0b"
+								: caps.layer === "cloud"
+									? "#c084fc"
+									: "#34d399";
+					const chassisClass =
+						caps.layer === 1
+							? "border-dashed"
+							: caps.layer === "cloud"
+								? "border-double"
+								: "";
 
 				return (
 					<motion.div
@@ -687,7 +709,7 @@ export default function TopologyCanvas({
 						transition={{ duration: 0.15 }}
 					>
 						<div
-							className={`rounded-xl border-2 shadow-lg transition-shadow ${
+							className={`rounded-xl border-2 shadow-lg transition-shadow ${chassisClass} ${
 								isSelected
 									? "border-white/50 shadow-white/10"
 									: "border-(--app-border) shadow-black/30"
@@ -719,6 +741,15 @@ export default function TopologyCanvas({
 									style={{ color: textColor }}
 								>
 									{device.name}
+								</span>
+								<span
+									className="text-[9px] px-1.5 py-px rounded-full font-semibold tracking-wide"
+									style={{
+										backgroundColor: `${textColor === "#000" ? "#111111" : "#ffffff"}1f`,
+										color: textColor,
+									}}
+								>
+									{layerLabel}
 								</span>
 								{device.portCount > 0 ? (
 									<span
@@ -760,6 +791,15 @@ export default function TopologyCanvas({
 											borderBottom: "1px solid var(--app-border)",
 										}}
 									>
+										<span
+											className="text-[8px] font-semibold px-1 py-px rounded shrink-0 uppercase tracking-wide"
+											style={{
+												backgroundColor: `${layerTone}1f`,
+												color: layerTone,
+											}}
+										>
+											{typeLabel}
+										</span>
 										{hasContent ? (
 											<>
 												{info.ip && (
@@ -785,7 +825,7 @@ export default function TopologyCanvas({
 												))}
 											</>
 										) : (
-											<span className="text-[10px] opacity-30 italic">
+											<span className="text-[10px] opacity-40 italic">
 												No config
 											</span>
 										)}
@@ -960,6 +1000,21 @@ export default function TopologyCanvas({
 					const isWireSel = selectedWire === conn.id;
 					const midX = (from.x + to.x) / 2;
 					const midY = (from.y + to.y) / 2;
+					const portAConfig = getPortConfig(conn.deviceAId, conn.portA);
+					const portBConfig = getPortConfig(conn.deviceBId, conn.portB);
+					const wireMeta: string[] = [];
+					if (portAConfig?.ipAddress || portBConfig?.ipAddress) {
+						wireMeta.push(
+							`${portAConfig?.ipAddress ?? "∅"} ⇄ ${portBConfig?.ipAddress ?? "∅"}`,
+						);
+					}
+					if (portAConfig?.vlan || portBConfig?.vlan) {
+						wireMeta.push(`VLAN ${portAConfig?.vlan ?? portBConfig?.vlan}`);
+					}
+					if (portAConfig?.speed || portBConfig?.speed) {
+						wireMeta.push(portAConfig?.speed ?? portBConfig?.speed ?? "");
+					}
+					const showWireMeta = wireMeta.length > 0;
 
 					/* Determine if this is a WiFi connection */
 					const devA = devices.find((d) => d.id === conn.deviceAId);
@@ -975,6 +1030,8 @@ export default function TopologyCanvas({
 						(!conn.connectionType &&
 							((capsA?.wifiHost && capsB?.wifiClient) ||
 								(capsB?.wifiHost && capsA?.wifiClient)));
+					const hasRoutableIps =
+						!!portAConfig?.ipAddress && !!portBConfig?.ipAddress;
 
 					return (
 						<g key={conn.id}>
@@ -1081,6 +1138,51 @@ export default function TopologyCanvas({
 										style={{ pointerEvents: "none" }}
 									>
 										✕
+									</text>
+								</g>
+							)}
+							{hasRoutableIps && !isWifi && (
+								<>
+									<circle r="2.1" fill="#22d3ee" opacity="0.9">
+										<animateMotion
+											dur="2.2s"
+											repeatCount="indefinite"
+											path={path}
+										/>
+									</circle>
+									<circle r="1.8" fill="#a78bfa" opacity="0.75">
+										<animateMotion
+											dur="2.6s"
+											repeatCount="indefinite"
+											path={path}
+											keyPoints="1;0"
+											keyTimes="0;1"
+											calcMode="linear"
+										/>
+									</circle>
+								</>
+							)}
+							{showWireMeta && (
+								<g transform={`translate(${midX},${midY - (isWifi ? 20 : 10)})`}>
+									<rect
+										x={-58}
+										y={-8}
+										rx={5}
+										width={116}
+										height={16}
+										fill="rgba(15, 23, 42, 0.72)"
+										stroke="rgba(148, 163, 184, 0.25)"
+										strokeWidth={1}
+									/>
+									<text
+										textAnchor="middle"
+										y={3}
+										fill="#e2e8f0"
+										fontSize={8.8}
+										fontWeight={600}
+										style={{ pointerEvents: "none", userSelect: "none" }}
+									>
+										{wireMeta.join("  •  ").slice(0, 46)}
 									</text>
 								</g>
 							)}
