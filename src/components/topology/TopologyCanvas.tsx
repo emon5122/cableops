@@ -2,23 +2,25 @@ import DeviceContextMenu from "@/components/topology/DeviceContextMenu";
 import DeviceIcon from "@/components/topology/DeviceIcon";
 import PortContextMenu from "@/components/topology/PortContextMenu";
 import {
-    type AnnotationRow,
-    type ConnectionRow,
-    DEVICE_CAPABILITIES,
-    DEVICE_NODE_WIDTH,
-    DEVICE_TYPE_LABELS,
-    type DeviceRow,
-    type DeviceType,
-    type DragState,
-    getDeviceNodeHeight,
-    getPortDisplayColor,
-    getPortPosition,
-    INFO_STRIP_HEIGHT,
-    type InterfaceRow,
-    isPortConnected,
-    luminance,
-    PORT_SIZE,
-    type PortSelection,
+	type AnnotationRow,
+	type ConnectionRow,
+	DEVICE_CAPABILITIES,
+	DEVICE_NODE_WIDTH,
+	DEVICE_TYPE_LABELS,
+	type DeviceRow,
+	type DeviceType,
+	discoverAllSegments,
+	type DragState,
+	getDeviceNodeHeight,
+	getPortDisplayColor,
+	getPortPosition,
+	INFO_STRIP_HEIGHT,
+	type InterfaceRow,
+	isPortConnected,
+	luminance,
+	PORT_SIZE,
+	type PortSelection,
+	sameSubnet,
 } from "@/lib/topology-types";
 import { motion } from "framer-motion";
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -467,8 +469,71 @@ export default function TopologyCanvas({
 	const activeConnectionIds = useMemo(() => {
 		if (connections.length === 0) return new Set<string>();
 
+		const segments = discoverAllSegments(devices, connections, portConfigs);
+		const segmentPortSets = new Map<string, Set<string>>();
+		const portToSegmentId = new Map<string, string>();
+		for (const seg of segments) {
+			const keySet = new Set<string>();
+			for (const sp of seg.ports) {
+				const key = `${sp.deviceId}:${sp.portNumber}`;
+				keySet.add(key);
+				portToSegmentId.set(key, seg.id);
+			}
+			segmentPortSets.set(seg.id, keySet);
+		}
+
+		const viableSegmentIds = new Set<string>();
+		for (const seg of segments) {
+			const ips = seg.ports
+				.map((sp) =>
+					portConfigs.find(
+						(pc) => pc.deviceId === sp.deviceId && pc.portNumber === sp.portNumber,
+					)?.ipAddress,
+				)
+				.filter((ip): ip is string => Boolean(ip));
+
+			let hasSameSubnetPeers = false;
+			for (let i = 0; i < ips.length && !hasSameSubnetPeers; i++) {
+				for (let j = i + 1; j < ips.length; j++) {
+					if (sameSubnet(ips[i]!, ips[j]!)) {
+						hasSameSubnetPeers = true;
+						break;
+					}
+				}
+			}
+
+			const hasDhcpServer = seg.ports.some((sp) => {
+				const iface = portConfigs.find(
+					(pc) => pc.deviceId === sp.deviceId && pc.portNumber === sp.portNumber,
+				);
+				return !!(
+					iface?.dhcpEnabled &&
+					iface.dhcpRangeStart &&
+					iface.dhcpRangeEnd
+				);
+			});
+
+			if (seg.gateway || hasSameSubnetPeers || (hasDhcpServer && seg.ports.length > 1)) {
+				viableSegmentIds.add(seg.id);
+			}
+		}
+
+		const connectionToSegmentId = new Map<string, string>();
+		for (const conn of connections) {
+			const aKey = `${conn.deviceAId}:${conn.portA}`;
+			const bKey = `${conn.deviceBId}:${conn.portB}`;
+			for (const [segId, keySet] of segmentPortSets) {
+				if (keySet.has(aKey) && keySet.has(bKey)) {
+					connectionToSegmentId.set(conn.id, segId);
+					break;
+				}
+			}
+		}
+
 		const deviceNeighbors = new Map<string, Set<string>>();
 		for (const conn of connections) {
+			const segId = connectionToSegmentId.get(conn.id);
+			if (!segId || !viableSegmentIds.has(segId)) continue;
 			if (!deviceNeighbors.has(conn.deviceAId)) {
 				deviceNeighbors.set(conn.deviceAId, new Set<string>());
 			}
@@ -484,6 +549,8 @@ export default function TopologyCanvas({
 			if (d.deviceType === "cloud") trafficEndpoints.add(d.id);
 		}
 		for (const pc of portConfigs) {
+			const segId = portToSegmentId.get(`${pc.deviceId}:${pc.portNumber}`);
+			if (!segId || !viableSegmentIds.has(segId)) continue;
 			if (pc.ipAddress || pc.gateway || pc.dhcpEnabled || pc.natEnabled) {
 				trafficEndpoints.add(pc.deviceId);
 			}
@@ -493,11 +560,23 @@ export default function TopologyCanvas({
 		if (endpointIds.length < 2) {
 			const fallback = new Set<string>();
 			for (const conn of connections) {
+				const segId = connectionToSegmentId.get(conn.id);
+				if (!segId || !viableSegmentIds.has(segId)) continue;
 				const aHasIp = portConfigs.some(
-					(pc) => pc.deviceId === conn.deviceAId && !!pc.ipAddress,
+					(pc) =>
+						pc.deviceId === conn.deviceAId &&
+						!!pc.ipAddress &&
+						viableSegmentIds.has(
+							portToSegmentId.get(`${pc.deviceId}:${pc.portNumber}`) ?? "",
+						),
 				);
 				const bHasIp = portConfigs.some(
-					(pc) => pc.deviceId === conn.deviceBId && !!pc.ipAddress,
+					(pc) =>
+						pc.deviceId === conn.deviceBId &&
+						!!pc.ipAddress &&
+						viableSegmentIds.has(
+							portToSegmentId.get(`${pc.deviceId}:${pc.portNumber}`) ?? "",
+						),
 				);
 				if (aHasIp && bHasIp) fallback.add(conn.id);
 			}
@@ -541,7 +620,10 @@ export default function TopologyCanvas({
 					const pair = [path[k]!, path[k + 1]!].sort().join("|");
 					const connIds = connectionLookup.get(pair);
 					if (connIds?.length) {
-						for (const connId of connIds) active.add(connId);
+						for (const connId of connIds) {
+							const segId = connectionToSegmentId.get(connId);
+							if (segId && viableSegmentIds.has(segId)) active.add(connId);
+						}
 					}
 				}
 			}
