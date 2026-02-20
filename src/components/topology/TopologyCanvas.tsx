@@ -1,4 +1,3 @@
-import { useCallback, useMemo, useRef, useState } from "react";
 import DeviceContextMenu from "@/components/topology/DeviceContextMenu";
 import DeviceIcon from "@/components/topology/DeviceIcon";
 import PortContextMenu from "@/components/topology/PortContextMenu";
@@ -20,6 +19,7 @@ import {
 	PORT_SIZE,
 	type PortSelection,
 } from "@/lib/topology-types";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 interface ContextMenuState {
 	deviceId: string;
@@ -869,7 +869,7 @@ export default function TopologyCanvas({
 												)}
 												{roleColor && (
 													<div
-														className="absolute top-0 left-0 right-0 h-[2px] rounded-t-md"
+														className="absolute top-0 left-0 right-0 h-0.5 rounded-t-md"
 														style={{ backgroundColor: roleColor }}
 													/>
 												)}
