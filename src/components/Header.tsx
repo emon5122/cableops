@@ -5,6 +5,8 @@ import { Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import { Cable, Moon, Power, Sun, User } from "lucide-react";
 
+declare const __APP_VERSION__: string;
+
 export default function Header() {
 	const { data: session } = authClient.useSession();
 	const { theme, toggleTheme } = useTheme();
@@ -18,7 +20,7 @@ export default function Header() {
 				<h1 className="text-base lg:text-lg font-bold text-(--app-text)">CableOps</h1>
 			</Link>
 			<span className="text-(--app-text-muted) text-[10px] lg:text-xs border border-(--app-border) px-1.5 lg:px-2 py-0.5 rounded-full hidden sm:inline-block">
-				beta
+				v{__APP_VERSION__}
 			</span>
 
 			<div className="ml-auto flex items-center gap-1.5 lg:gap-2">
