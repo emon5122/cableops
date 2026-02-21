@@ -62,6 +62,97 @@ CableOps is an **interface-first network validation engine** with visual topolog
 | **UI** | Radix UI primitives, Lucide icons |
 | **Tooling** | TypeScript (strict), Biome, Vitest |
 
+## Self-Hosting
+
+The easiest way to run CableOps is with Docker. A pre-built image is published automatically via CI/CD.
+
+### Quick Start (Docker Compose)
+
+Create a `docker-compose.yml`:
+
+```yaml
+services:
+  app:
+    image: emon5122/cableops:latest
+    container_name: cableops
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://cableops:changeme@db:5432/cableops
+      BETTER_AUTH_URL: http://localhost:3000
+      BETTER_AUTH_SECRET: <generate-a-random-secret>
+
+  db:
+    image: postgres:17-alpine
+    container_name: cableops-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cableops
+      POSTGRES_USER: cableops
+      POSTGRES_PASSWORD: changeme
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cableops -d cableops"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+```
+
+Then run:
+
+```bash
+docker compose up -d
+```
+
+CableOps will be available at [http://localhost:3000](http://localhost:3000). Database migrations run automatically on startup.
+
+### Configuration
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | Yes | PostgreSQL connection string (e.g. `postgres://user:pass@host:5432/dbname`) |
+| `BETTER_AUTH_SECRET` | Yes | Random secret for session signing. Generate with `openssl rand -hex 32` |
+| `BETTER_AUTH_URL` | Yes | Public URL of your CableOps instance (e.g. `https://cableops.example.com`) |
+
+### Running with an Existing PostgreSQL
+
+If you already have a PostgreSQL server, run just the app container:
+
+```bash
+docker run -d \
+  --name cableops \
+  -p 3000:3000 \
+  -e DATABASE_URL=postgres://user:pass@your-db-host:5432/cableops \
+  -e BETTER_AUTH_URL=http://localhost:3000 \
+  -e BETTER_AUTH_SECRET=$(openssl rand -hex 32) \
+  emon5122/cableops:latest
+```
+
+### Reverse Proxy
+
+When running behind a reverse proxy (Nginx, Caddy, Traefik), set `BETTER_AUTH_URL` to your public URL:
+
+```
+BETTER_AUTH_URL=https://cableops.example.com
+```
+
+### Updating
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Migrations run automatically on container start — no manual steps needed.
+
 ## Getting Started
 
 ### Prerequisites

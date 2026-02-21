@@ -404,9 +404,9 @@ export default function NetworkInsights({
 	];
 
 	return (
-		<div className="flex-1 overflow-auto bg-(--app-bg) p-4">
+		<div className="flex-1 h-full overflow-auto bg-(--app-bg) p-3 lg:p-4">
 			{/* Tab switcher */}
-			<div className="flex items-center gap-2 mb-4">
+			<div className="flex items-center gap-1.5 lg:gap-2 mb-3 lg:mb-4">
 				{tabs.map((t) => (
 					<button
 						key={t.key}
@@ -433,7 +433,7 @@ export default function NetworkInsights({
 							<h3 className="text-xs font-bold text-(--app-text-muted) uppercase tracking-wider flex items-center gap-1.5 mb-3">
 								<ShieldAlert size={12} /> Issues ({analysis.issues.length})
 							</h3>
-							<div className="space-y-1.5">
+							<div className="space-y-1.5 max-h-64 overflow-y-auto">
 								{errors.map((issue, idx) => (
 									<IssueRow key={`e-${idx}`} issue={issue} devices={devices} />
 								))}
@@ -578,10 +578,10 @@ export default function NetworkInsights({
 											className="bg-(--app-surface) rounded-lg border border-(--app-border) overflow-hidden"
 										>
 											{/* Header */}
-											<div className="px-3 py-2 border-b border-(--app-border) flex items-center justify-between">
-												<div className="flex items-center gap-2">
-													<Globe size={13} className="text-emerald-400" />
-													<span className="text-sm font-bold font-mono text-(--app-text)">
+											<div className="px-2.5 lg:px-3 py-2 border-b border-(--app-border) flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+												<div className="flex items-center gap-2 min-w-0">
+													<Globe size={13} className="text-emerald-400 shrink-0" />
+													<span className="text-sm font-bold font-mono text-(--app-text) truncate">
 														{seg.subnet ?? "No subnet"}
 													</span>
 													<span className="text-[9px] px-1.5 py-0.5 rounded bg-(--app-surface-hover) text-(--app-text-dim)">
@@ -589,7 +589,7 @@ export default function NetworkInsights({
 													</span>
 												</div>
 												{parsed && (
-													<div className="flex items-center gap-3 text-[10px] text-(--app-text-muted)">
+													<div className="flex items-center gap-2 lg:gap-3 text-[10px] text-(--app-text-muted) flex-wrap">
 														<span>
 															Mask:{" "}
 															<span className="font-mono">
@@ -655,7 +655,7 @@ export default function NetworkInsights({
 											)}
 
 											{/* Devices */}
-											<div className="divide-y divide-(--app-border)">
+											<div className="divide-y divide-(--app-border) max-h-48 overflow-y-auto">
 												{deviceIds.map((devId) => {
 													const dev = getDevice(devId);
 													if (!dev) return null;
@@ -782,7 +782,7 @@ export default function NetworkInsights({
 												{vlanDeviceIds.length !== 1 ? "s" : ""}
 											</span>
 										</div>
-										<div className="divide-y divide-(--app-border)">
+										<div className="divide-y divide-(--app-border) max-h-48 overflow-y-auto">
 											{vlanDeviceIds.map((devId) => {
 												const dev = getDevice(devId);
 												if (!dev) return null;
@@ -1011,7 +1011,7 @@ export default function NetworkInsights({
 										</span>
 									</div>
 									{traceResult.path ? (
-										<div className="p-3 flex items-center flex-wrap gap-1.5">
+										<div className="p-3 flex items-center flex-wrap gap-1.5 max-h-48 overflow-y-auto">
 											{traceResult.path.map((id, idx) => {
 												const dev = getDevice(id);
 												if (!dev) return null;
@@ -1183,7 +1183,7 @@ export default function NetworkInsights({
 									</div>
 
 									{pingResult.hops.length > 0 && (
-										<div className="p-3 space-y-1.5">
+										<div className="p-3 space-y-1.5 max-h-48 overflow-y-auto">
 											<div className="text-[9px] text-(--app-text-dim) uppercase tracking-wider mb-1">
 												Traceroute — {pingResult.hops.length} hop
 												{pingResult.hops.length !== 1 ? "s" : ""}

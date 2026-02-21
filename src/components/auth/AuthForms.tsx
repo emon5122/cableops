@@ -1,10 +1,10 @@
-import { useRouter } from "@tanstack/react-router";
-import { Cable, LogIn, UserPlus } from "lucide-react";
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth-client";
+import { useRouter } from "@tanstack/react-router";
+import { Cable, LogIn, UserPlus } from "lucide-react";
+import { useState } from "react";
 
 export function SignInForm() {
 	const [email, setEmail] = useState("");
@@ -37,19 +37,19 @@ export function SignInForm() {
 	return (
 		<div className="min-h-screen flex items-center justify-center bg-(--app-bg) p-4">
 			<div className="w-full max-w-sm">
-				<div className="text-center mb-8">
-					<div className="flex items-center justify-center gap-3 mb-3">
-						<Cable className="text-cyan-400" size={32} />
-						<h1 className="text-2xl font-bold text-(--app-text)">CableOps</h1>
+				<div className="text-center mb-6 lg:mb-8">
+					<div className="flex items-center justify-center gap-2 lg:gap-3 mb-2 lg:mb-3">
+						<Cable className="text-cyan-400" size={28} />
+						<h1 className="text-xl lg:text-2xl font-bold text-(--app-text)">CableOps</h1>
 					</div>
-					<p className="text-(--app-text-muted) text-sm">
+					<p className="text-(--app-text-muted) text-xs lg:text-sm">
 						Sign in to manage your cable topologies
 					</p>
 				</div>
 
 				<form
 					onSubmit={handleSubmit}
-					className="bg-(--app-surface) border border-(--app-border) rounded-xl p-6 space-y-4"
+					className="bg-(--app-surface) border border-(--app-border) rounded-xl p-5 lg:p-6 space-y-4"
 				>
 					{error && (
 						<div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-sm text-red-400">
@@ -84,13 +84,13 @@ export function SignInForm() {
 					<Button
 						type="submit"
 						disabled={loading}
-						className="w-full bg-cyan-600 hover:bg-cyan-700 text-white"
+						className="w-full bg-cyan-600 hover:bg-cyan-700 text-white h-10 rounded-lg font-medium"
 					>
 						<LogIn size={16} />
 						{loading ? "Signing in…" : "Sign In"}
 					</Button>
 
-					<p className="text-center text-xs text-(--app-text-muted)">
+					<p className="text-center text-xs text-(--app-text-muted) pt-1">
 						Don't have an account?{" "}
 						<a href="/auth/sign-up" className="text-cyan-400 hover:underline">
 							Sign up
@@ -135,19 +135,19 @@ export function SignUpForm() {
 	return (
 		<div className="min-h-screen flex items-center justify-center bg-(--app-bg) p-4">
 			<div className="w-full max-w-sm">
-				<div className="text-center mb-8">
-					<div className="flex items-center justify-center gap-3 mb-3">
-						<Cable className="text-cyan-400" size={32} />
-						<h1 className="text-2xl font-bold text-(--app-text)">CableOps</h1>
+				<div className="text-center mb-6 lg:mb-8">
+					<div className="flex items-center justify-center gap-2 lg:gap-3 mb-2 lg:mb-3">
+						<Cable className="text-cyan-400" size={28} />
+						<h1 className="text-xl lg:text-2xl font-bold text-(--app-text)">CableOps</h1>
 					</div>
-					<p className="text-(--app-text-muted) text-sm">
+					<p className="text-(--app-text-muted) text-xs lg:text-sm">
 						Create your account to get started
 					</p>
 				</div>
 
 				<form
 					onSubmit={handleSubmit}
-					className="bg-(--app-surface) border border-(--app-border) rounded-xl p-6 space-y-4"
+					className="bg-(--app-surface) border border-(--app-border) rounded-xl p-5 lg:p-6 space-y-4"
 				>
 					{error && (
 						<div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-sm text-red-400">
@@ -195,13 +195,13 @@ export function SignUpForm() {
 					<Button
 						type="submit"
 						disabled={loading}
-						className="w-full bg-cyan-600 hover:bg-cyan-700 text-white"
+						className="w-full bg-cyan-600 hover:bg-cyan-700 text-white h-10 rounded-lg font-medium"
 					>
 						<UserPlus size={16} />
 						{loading ? "Creating account…" : "Sign Up"}
 					</Button>
 
-					<p className="text-center text-xs text-(--app-text-muted)">
+					<p className="text-center text-xs text-(--app-text-muted) pt-1">
 						Already have an account?{" "}
 						<a href="/auth/sign-in" className="text-cyan-400 hover:underline">
 							Sign in

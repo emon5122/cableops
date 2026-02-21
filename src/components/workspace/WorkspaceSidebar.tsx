@@ -1,34 +1,34 @@
-import {
-	Cable,
-	ChevronDown,
-	ChevronRight,
-	Palette,
-	Plus,
-	Search,
-	Trash2,
-	Wifi,
-} from "lucide-react";
-import { useState } from "react";
 import DeviceIcon from "@/components/topology/DeviceIcon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-	bestTextColor,
-	type ConnectionRow,
-	DEFAULT_COLORS,
-	DEVICE_CAPABILITIES,
-	DEVICE_TYPE_DEFAULT_PORTS,
-	DEVICE_TYPE_LABELS,
-	DEVICE_TYPES,
-	type DeviceRow,
-	type DeviceType,
-	getPortDisplayColor,
-	getPortPeer,
-	getWifiConnections,
-	type InterfaceRow,
-	isPortConnected,
-	type PortSelection,
+    bestTextColor,
+    type ConnectionRow,
+    DEFAULT_COLORS,
+    DEVICE_CAPABILITIES,
+    DEVICE_TYPE_DEFAULT_PORTS,
+    DEVICE_TYPE_LABELS,
+    DEVICE_TYPES,
+    type DeviceRow,
+    type DeviceType,
+    getPortDisplayColor,
+    getPortPeer,
+    getWifiConnections,
+    type InterfaceRow,
+    isPortConnected,
+    type PortSelection,
 } from "@/lib/topology-types";
+import {
+    Cable,
+    ChevronDown,
+    ChevronRight,
+    Palette,
+    Plus,
+    Search,
+    Trash2,
+    Wifi,
+} from "lucide-react";
+import { useState } from "react";
 
 interface WorkspaceSidebarProps {
 	devices: DeviceRow[];
@@ -117,7 +117,7 @@ export default function WorkspaceSidebar({
 	const selectedDevice = devices.find((d) => d.id === selectedDeviceId);
 
 	return (
-		<aside className="w-80 shrink-0 border-r border-(--app-border) bg-(--app-surface-alt) overflow-y-auto flex flex-col">
+		<aside className="w-full shrink-0 border-r border-(--app-border) bg-(--app-surface-alt) overflow-y-auto flex flex-col min-w-0">
 			{/* Add device — collapsible */}
 			<div className="border-b border-(--app-border)">
 				<button
@@ -252,11 +252,11 @@ export default function WorkspaceSidebar({
 			{/* Device list */}
 			<div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
 				<div className="flex items-center justify-between mb-1">
-					<h3 className="text-xs font-bold text-(--app-text)">
+					<h3 className="text-xs font-bold text-(--app-text) shrink-0">
 						Devices ({devices.length})
 					</h3>
-					<span className="text-[10px] text-(--app-text-dim)">
-						Click ports to connect · Right-click for settings
+					<span className="text-[10px] text-(--app-text-dim) truncate ml-2">
+						Click ports to connect
 					</span>
 				</div>
 				{devices.length === 0 && (
@@ -426,7 +426,7 @@ export default function WorkspaceSidebar({
 								{isExpanded && (
 									<div className="px-3 pb-3 border-t border-(--app-border)">
 										{device.portCount > 0 ? (
-											<div className="mt-2 grid grid-cols-8 gap-1">
+											<div className="mt-2 grid grid-cols-6 xl:grid-cols-8 gap-1">
 												{Array.from({ length: device.portCount }, (_, i) => {
 													const pNum = i + 1;
 													const connected = isPortConnected(

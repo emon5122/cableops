@@ -23,7 +23,16 @@ import {
 	sameSubnet,
 } from "@/lib/topology-types";
 import { motion } from "framer-motion";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { toPng } from "html-to-image";
+import {
+	Download,
+	Maximize,
+	Minimize,
+	Minus,
+	Plus,
+	RotateCcw,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface ContextMenuState {
 	deviceId: string;
@@ -164,6 +173,50 @@ export default function TopologyCanvas({
 	const [annLabelValue, setAnnLabelValue] = useState("");
 	const [selectedWire, setSelectedWire] = useState<string | null>(null);
 
+	/* ── Zoom & fullscreen ── */
+	const [zoom, setZoom] = useState(1);
+	const zoomRef = useRef(1);
+	const canvasInnerRef = useRef<HTMLDivElement>(null);
+	const [isFullscreen, setIsFullscreen] = useState(false);
+
+	// Keep ref in sync
+	useEffect(() => {
+		zoomRef.current = zoom;
+	}, [zoom]);
+
+	const clampZoom = (z: number) => Math.min(3, Math.max(0.25, Math.round(z * 100) / 100));
+
+	// Fullscreen change detection
+	useEffect(() => {
+		const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+		document.addEventListener("fullscreenchange", onFsChange);
+		return () => document.removeEventListener("fullscreenchange", onFsChange);
+	}, []);
+
+	const toggleFullscreen = useCallback(() => {
+		if (!containerRef.current) return;
+		if (document.fullscreenElement) {
+			document.exitFullscreen();
+		} else {
+			containerRef.current.requestFullscreen();
+		}
+	}, []);
+
+	const handleSavePng = useCallback(() => {
+		if (!canvasInnerRef.current) return;
+		toPng(canvasInnerRef.current, {
+			backgroundColor: "var(--app-bg)",
+			pixelRatio: 2,
+		}).then((dataUrl) => {
+			const a = document.createElement("a");
+			a.download = "topology.png";
+			a.href = dataUrl;
+			a.click();
+		}).catch(() => {
+			// silently fail
+		});
+	}, []);
+
 	/* ── Live position (optimistic while dragging) ── */
 	const [livePositions, setLivePositions] = useState<
 		Record<string, { x: number; y: number }>
@@ -208,8 +261,8 @@ export default function TopologyCanvas({
 	const handleMouseMove = useCallback(
 		(e: React.MouseEvent) => {
 			if (drag.isDragging && drag.deviceId) {
-				const dx = e.clientX - drag.startMouseX;
-				const dy = e.clientY - drag.startMouseY;
+				const dx = (e.clientX - drag.startMouseX) / zoomRef.current;
+				const dy = (e.clientY - drag.startMouseY) / zoomRef.current;
 				setLivePositions((prev) => ({
 					...prev,
 					[drag.deviceId as string]: {
@@ -220,8 +273,8 @@ export default function TopologyCanvas({
 				return;
 			}
 			if (annDrag.isDragging && annDrag.annId) {
-				const dx = e.clientX - annDrag.startMouseX;
-				const dy = e.clientY - annDrag.startMouseY;
+				const dx = (e.clientX - annDrag.startMouseX) / zoomRef.current;
+				const dy = (e.clientY - annDrag.startMouseY) / zoomRef.current;
 				setLiveAnnPositions((prev) => ({
 					...prev,
 					[annDrag.annId as string]: {
@@ -232,8 +285,8 @@ export default function TopologyCanvas({
 				return;
 			}
 			if (annResize.isResizing && annResize.annId) {
-				const dx = e.clientX - annResize.startMouseX;
-				const dy = e.clientY - annResize.startMouseY;
+				const dx = (e.clientX - annResize.startMouseX) / zoomRef.current;
+				const dy = (e.clientY - annResize.startMouseY) / zoomRef.current;
 				setLiveAnnSizes((prev) => ({
 					...prev,
 					[annResize.annId as string]: {
@@ -338,8 +391,8 @@ export default function TopologyCanvas({
 		setCanvasMenu({
 			x: e.clientX,
 			y: e.clientY,
-			canvasX: e.clientX - rect.left + (containerRef.current?.scrollLeft ?? 0),
-			canvasY: e.clientY - rect.top + (containerRef.current?.scrollTop ?? 0),
+			canvasX: (e.clientX - rect.left + (containerRef.current?.scrollLeft ?? 0)) / zoomRef.current,
+			canvasY: (e.clientY - rect.top + (containerRef.current?.scrollTop ?? 0)) / zoomRef.current,
 		});
 	}, []);
 
@@ -774,14 +827,96 @@ export default function TopologyCanvas({
 				background: "var(--app-bg)",
 				backgroundImage:
 					"radial-gradient(circle, var(--app-canvas-dot) 1px, transparent 1px)",
-				backgroundSize: "24px 24px",
+				backgroundSize: `${24 * zoom}px ${24 * zoom}px`,
 			}}
 			onMouseMove={handleMouseMove}
 			onMouseUp={handleMouseUp}
 			onMouseLeave={handleMouseUp}
 			onClick={handleCanvasClick}
 			onContextMenu={handleCanvasContextMenu}
+			onWheel={(e) => {
+				if (e.ctrlKey || e.metaKey) {
+					e.preventDefault();
+					setZoom((prev) => clampZoom(prev - e.deltaY * 0.002));
+				}
+			}}
 		>
+			{/* ── Canvas toolbar (above everything) ── */}
+			<div
+				className="sticky top-2 left-0 z-100 flex justify-end px-2 pointer-events-none"
+			>
+				<div className="flex items-center gap-1 bg-(--app-surface)/90 backdrop-blur-sm border border-(--app-border) rounded-lg p-1 shadow-lg pointer-events-auto">
+					<button
+						type="button"
+						className="w-7 h-7 flex items-center justify-center rounded-md text-(--app-text-muted) hover:text-(--app-text) hover:bg-(--app-surface-hover) transition-colors"
+						onClick={() => setZoom((prev) => clampZoom(prev - 0.15))}
+						title="Zoom out"
+					>
+						<Minus size={14} />
+					</button>
+					<button
+						type="button"
+						className="min-w-12 h-7 flex items-center justify-center rounded-md text-[11px] font-mono font-medium text-(--app-text-muted) hover:text-(--app-text) hover:bg-(--app-surface-hover) transition-colors"
+						onClick={() => setZoom(1)}
+						title="Reset zoom"
+					>
+						{Math.round(zoom * 100)}%
+					</button>
+					<button
+						type="button"
+						className="w-7 h-7 flex items-center justify-center rounded-md text-(--app-text-muted) hover:text-(--app-text) hover:bg-(--app-surface-hover) transition-colors"
+						onClick={() => setZoom((prev) => clampZoom(prev + 0.15))}
+						title="Zoom in"
+					>
+						<Plus size={14} />
+					</button>
+					<div className="w-px h-5 bg-(--app-border) mx-0.5" />
+					<button
+						type="button"
+						className="w-7 h-7 flex items-center justify-center rounded-md text-(--app-text-muted) hover:text-(--app-text) hover:bg-(--app-surface-hover) transition-colors"
+						onClick={() => {
+							setZoom(1);
+							if (containerRef.current) {
+								containerRef.current.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+							}
+						}}
+						title="Reset view"
+					>
+						<RotateCcw size={13} />
+					</button>
+					<div className="w-px h-5 bg-(--app-border) mx-0.5" />
+					<button
+						type="button"
+						className="w-7 h-7 flex items-center justify-center rounded-md text-(--app-text-muted) hover:text-(--app-text) hover:bg-(--app-surface-hover) transition-colors"
+						onClick={handleSavePng}
+						title="Save as PNG"
+					>
+						<Download size={13} />
+					</button>
+					<button
+						type="button"
+						className="w-7 h-7 flex items-center justify-center rounded-md text-(--app-text-muted) hover:text-(--app-text) hover:bg-(--app-surface-hover) transition-colors"
+						onClick={toggleFullscreen}
+						title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+					>
+						{isFullscreen ? <Minimize size={13} /> : <Maximize size={13} />}
+					</button>
+				</div>
+			</div>
+
+			{/* ── Scaled canvas content ── */}
+			<div
+				ref={canvasInnerRef}
+				className="relative"
+				style={{
+					transformOrigin: "0 0",
+					transform: `scale(${zoom})`,
+					width: canvasExtent.width,
+					height: canvasExtent.height,
+					minWidth: `${100 / zoom}%`,
+					minHeight: `${100 / zoom}%`,
+				}}
+			>
 			{/* Annotation shapes — z-index 5 (BELOW devices) */}
 			{annotations.map((ann) => {
 				const pos = getAnnPos(ann);
@@ -1580,6 +1715,38 @@ export default function TopologyCanvas({
 					})()}
 			</svg>
 
+			{/* Empty state */}
+			{devices.length === 0 && (
+				<motion.div
+					className="absolute inset-0 flex items-center justify-center"
+					style={{ zIndex: 5 }}
+					initial={{ opacity: 0 }}
+					animate={{ opacity: 1 }}
+					transition={{ duration: 0.2 }}
+				>
+					<div className="text-center text-(--app-text-muted)">
+						<svg
+							className="mx-auto mb-4 opacity-30"
+							width="64"
+							height="64"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="1.5"
+						>
+							<rect x="2" y="6" width="20" height="12" rx="2" />
+							<path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01" />
+							<path d="M6 14h.01M10 14h.01M14 14h.01M18 14h.01" />
+						</svg>
+						<p className="text-lg font-semibold">No devices yet</p>
+						<p className="text-sm mt-1">
+							Add a device from the sidebar to get started
+						</p>
+					</div>
+				</motion.div>
+			)}
+			</div>{/* end canvasInnerRef */}
+
 			{/* Port context menu — z-index 100 */}
 			{contextMenu && contextMenuDevice && (
 				<PortContextMenu
@@ -1720,37 +1887,6 @@ export default function TopologyCanvas({
 						Cancel
 					</button>
 				</div>
-			)}
-
-			{/* Empty state */}
-			{devices.length === 0 && (
-				<motion.div
-					className="absolute inset-0 flex items-center justify-center"
-					style={{ zIndex: 5 }}
-					initial={{ opacity: 0 }}
-					animate={{ opacity: 1 }}
-					transition={{ duration: 0.2 }}
-				>
-					<div className="text-center text-(--app-text-muted)">
-						<svg
-							className="mx-auto mb-4 opacity-30"
-							width="64"
-							height="64"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							strokeWidth="1.5"
-						>
-							<rect x="2" y="6" width="20" height="12" rx="2" />
-							<path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01" />
-							<path d="M6 14h.01M10 14h.01M14 14h.01M18 14h.01" />
-						</svg>
-						<p className="text-lg font-semibold">No devices yet</p>
-						<p className="text-sm mt-1">
-							Add a device from the sidebar to get started
-						</p>
-					</div>
-				</motion.div>
 			)}
 		</div>
 	);

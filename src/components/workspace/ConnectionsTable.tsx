@@ -1,3 +1,10 @@
+import type {
+	ConnectionRow,
+	DeviceRow,
+	DeviceType,
+	InterfaceRow,
+} from "@/lib/topology-types";
+import { DEVICE_TYPE_LABELS, negotiatedSpeed } from "@/lib/topology-types";
 import {
 	ArrowLeftRight,
 	Cable,
@@ -7,13 +14,6 @@ import {
 	Zap,
 } from "lucide-react";
 import { useMemo } from "react";
-import type {
-	ConnectionRow,
-	DeviceRow,
-	DeviceType,
-	InterfaceRow,
-} from "@/lib/topology-types";
-import { DEVICE_TYPE_LABELS, negotiatedSpeed } from "@/lib/topology-types";
 
 interface ConnectionsTableProps {
 	connections: ConnectionRow[];
@@ -95,7 +95,7 @@ export default function ConnectionsTable({
 	return (
 		<div className="overflow-x-auto">
 			{/* Stats cards */}
-			<div className="grid grid-cols-4 gap-2 px-3 py-3 border-b border-(--app-border)">
+			<div className="grid grid-cols-2 lg:grid-cols-4 gap-2 px-3 py-3 border-b border-(--app-border)">
 				{(
 					[
 						{
@@ -127,7 +127,7 @@ export default function ConnectionsTable({
 				).map((s) => (
 					<div
 						key={s.label}
-						className="bg-(--app-surface) rounded-lg border border-(--app-border) px-3 py-2"
+						className="bg-(--app-surface) rounded-lg border border-(--app-border) px-2.5 lg:px-3 py-2"
 					>
 						<div className="flex items-center gap-1.5 mb-1">
 							<s.icon size={12} className={s.color} />
@@ -146,7 +146,7 @@ export default function ConnectionsTable({
 					</div>
 				))}
 			</div>
-			<table className="w-full text-sm border-collapse">
+			<table className="w-full text-xs lg:text-sm border-collapse min-w-160">
 				<thead>
 					<tr className="bg-(--app-surface) text-(--app-text-muted) text-xs">
 						<th className="text-left px-3 py-2 font-semibold w-8">#</th>

@@ -28,15 +28,17 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
 	Cable,
 	Check,
+	ChevronLeft,
 	Download,
 	Lightbulb,
+	Menu,
 	Network,
 	Pencil,
 	Share2,
 	Table2,
 	Upload,
 	Users,
-	X,
+	X
 } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 
@@ -68,6 +70,7 @@ function WorkspacePage() {
 	const wsNameInputRef = useRef<HTMLInputElement>(null);
 	const importFileInputRef = useRef<HTMLInputElement>(null);
 	const [isLiveSyncEnabled, setIsLiveSyncEnabled] = useState(true);
+	const [sidebarOpen, setSidebarOpen] = useState(true);
 	const liveRefetchInterval: number | false = isLiveSyncEnabled ? 2000 : false;
 
 	/* ── Queries ── */
@@ -549,6 +552,7 @@ function WorkspacePage() {
 			/>
 
 			{/* Sidebar */}
+			<div className={`shrink-0 transition-all duration-200 ease-in-out overflow-hidden ${sidebarOpen ? "w-72 xl:w-80" : "w-0"}`}>
 			<WorkspaceSidebar
 				devices={devices}
 				connections={connections}
@@ -604,13 +608,23 @@ function WorkspacePage() {
 				searchQuery={searchQuery}
 				onSearchChange={setSearchQuery}
 			/>
+			</div>
 
 			{/* Main area */}
 			<div className="flex-1 flex flex-col overflow-hidden">
 				{/* Tab bar */}
-				<div className="flex items-center gap-1 px-4 py-2 bg-(--app-surface-alt) border-b border-(--app-border)">
-					<div className="text-sm font-bold text-(--app-text) mr-3 flex items-center gap-2">
-						<Cable size={14} className="text-cyan-400" />
+				<div className="flex items-center gap-1 px-2 lg:px-4 py-1.5 lg:py-2 bg-(--app-surface-alt) border-b border-(--app-border) min-h-10">
+					{/* Sidebar toggle */}
+					<button
+						type="button"
+						className="p-1.5 rounded-md text-(--app-text-muted) hover:text-(--app-text) hover:bg-(--app-surface-hover) transition-colors shrink-0 mr-1"
+						onClick={() => setSidebarOpen((v) => !v)}
+						title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+					>
+						{sidebarOpen ? <ChevronLeft size={14} /> : <Menu size={14} />}
+					</button>
+					<div className="text-sm font-bold text-(--app-text) mr-2 lg:mr-3 flex items-center gap-1.5 lg:gap-2 shrink-0 max-w-40 xl:max-w-64">
+						<Cable size={14} className="text-cyan-400 shrink-0" />
 						{editingWorkspaceName ? (
 							<form
 								className="flex items-center gap-1"
@@ -667,73 +681,64 @@ function WorkspacePage() {
 							</span>
 						)}
 					</div>
-					<motion.button
-						type="button"
-						className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 ${
-							activeTab === "topology"
-								? "bg-(--app-surface-hover) text-white"
-								: "text-(--app-text-muted) hover:text-white"
-						}`}
-						onClick={() => setActiveTab("topology")}
-						whileTap={{ scale: 0.96 }}
-					>
-						<Network size={12} /> Topology
-					</motion.button>
-					<motion.button
-						type="button"
-						className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 ${
-							activeTab === "connections"
-								? "bg-(--app-surface-hover) text-white"
-								: "text-(--app-text-muted) hover:text-white"
-						}`}
-						onClick={() => setActiveTab("connections")}
-						whileTap={{ scale: 0.96 }}
-					>
-						<Table2 size={12} /> Connections ({connections.length})
-					</motion.button>
-					<motion.button
-						type="button"
-						className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 ${
-							activeTab === "insights"
-								? "bg-(--app-surface-hover) text-white"
-								: "text-(--app-text-muted) hover:text-white"
-						}`}
-						onClick={() => setActiveTab("insights")}
-						whileTap={{ scale: 0.96 }}
-					>
-						<Lightbulb size={12} /> Insights
-					</motion.button>
+					{/* View tabs */}
+					<div className="flex items-center gap-0.5 shrink-0">
+						{([
+							{ key: "topology" as const, icon: Network, label: "Topology" },
+							{ key: "connections" as const, icon: Table2, label: `Links (${connections.length})` },
+							{ key: "insights" as const, icon: Lightbulb, label: "Insights" },
+						] as const).map((t) => (
+							<motion.button
+								key={t.key}
+								type="button"
+								className={`px-2 xl:px-3 py-1 text-[11px] xl:text-xs font-semibold rounded-md transition-colors flex items-center gap-1 xl:gap-1.5 ${
+									activeTab === t.key
+										? "bg-(--app-surface-hover) text-white"
+										: "text-(--app-text-muted) hover:text-white"
+								}`}
+								onClick={() => setActiveTab(t.key)}
+								whileTap={{ scale: 0.96 }}
+							>
+								<t.icon size={12} />
+								<span className="hidden sm:inline">{t.label}</span>
+							</motion.button>
+						))}
+					</div>
 
-					<div className="ml-auto flex items-center gap-1.5">
+					{/* Actions */}
+					<div className="ml-auto flex items-center gap-0.5 lg:gap-1">
 						<button
 							type="button"
-							className="px-2 py-1 text-xs rounded-md text-(--app-text-muted) hover:text-white hover:bg-(--app-surface-hover) flex items-center gap-1"
+							className="p-1.5 lg:px-2 lg:py-1 text-xs rounded-md text-(--app-text-muted) hover:text-white hover:bg-(--app-surface-hover) flex items-center gap-1 transition-colors"
 							onClick={handleExportJson}
 							title="Export workspace JSON"
 						>
-							<Download size={12} /> Export
+							<Download size={13} />
+							<span className="hidden xl:inline">Export</span>
 						</button>
 						<button
 							type="button"
-							className="px-2 py-1 text-xs rounded-md text-(--app-text-muted) hover:text-white hover:bg-(--app-surface-hover) flex items-center gap-1"
+							className="p-1.5 lg:px-2 lg:py-1 text-xs rounded-md text-(--app-text-muted) hover:text-white hover:bg-(--app-surface-hover) flex items-center gap-1 transition-colors"
 							onClick={() => importFileInputRef.current?.click()}
 							title="Import JSON into this workspace (replaces current content)"
 						>
-							<Upload size={12} /> Import (Replace)
+							<Upload size={13} />
+							<span className="hidden xl:inline">Import</span>
 						</button>
 						<button
 							type="button"
-							className="px-2 py-1 text-xs rounded-md text-(--app-text-muted) hover:text-white hover:bg-(--app-surface-hover) flex items-center gap-1"
+							className="p-1.5 lg:px-2 lg:py-1 text-xs rounded-md text-(--app-text-muted) hover:text-white hover:bg-(--app-surface-hover) flex items-center gap-1 transition-colors"
 							onClick={() => {
 								void handleShareWorkspace();
 							}}
 							title="Create/copy share URL"
 						>
-							<Share2 size={12} /> Share URL
+							<Share2 size={13} />
+							<span className="hidden xl:inline">Share</span>
 						</button>
 						<button
 							type="button"
-							className={`px-2 py-1 text-xs rounded-md flex items-center gap-1 ${
+							className={`p-1.5 lg:px-2 lg:py-1 text-xs rounded-md flex items-center gap-1 transition-colors ${
 								isLiveSyncEnabled
 									? "text-emerald-300 bg-emerald-500/10"
 									: "text-(--app-text-muted) hover:text-white hover:bg-(--app-surface-hover)"
@@ -741,7 +746,8 @@ function WorkspacePage() {
 							onClick={() => setIsLiveSyncEnabled((v) => !v)}
 							title="Toggle multi-collaborator live sync"
 						>
-							<Users size={12} /> {isLiveSyncEnabled ? "Live" : "Paused"}
+							<Users size={13} />
+							<span className="hidden lg:inline">{isLiveSyncEnabled ? "Live" : "Paused"}</span>
 						</button>
 					</div>
 				</div>
@@ -750,7 +756,7 @@ function WorkspacePage() {
 				<AnimatePresence mode="wait" initial={false}>
 					<motion.div
 						key={activeTab}
-						className="flex-1 min-h-0"
+						className="flex-1 min-h-0 overflow-hidden flex flex-col"
 						initial={{ opacity: 0, y: 4 }}
 						animate={{ opacity: 1, y: 0 }}
 						exit={{ opacity: 0, y: -4 }}
@@ -788,7 +794,7 @@ function WorkspacePage() {
 								onDeleteAnnotation={(id) => deleteAnnotation.mutate({ id })}
 							/>
 						) : activeTab === "connections" ? (
-							<div className="flex-1 h-full overflow-auto bg-(--app-bg) p-4">
+							<div className="flex-1 h-full overflow-auto bg-(--app-bg) p-3 lg:p-4">
 								<ConnectionsTable
 									connections={connections}
 									devices={devices}

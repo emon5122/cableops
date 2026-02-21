@@ -92,40 +92,40 @@ function Dashboard() {
 	/* ── Not signed in ── */
 	if (!authLoading && !session?.user) {
 		return (
-			<div className="min-h-full flex items-center justify-center bg-(--app-bg) p-6">
+			<div className="min-h-full flex items-center justify-center bg-(--app-bg) p-4 lg:p-6">
 				<motion.div
-					className="max-w-lg text-center"
+					className="max-w-lg text-center w-full"
 					initial={{ opacity: 0, y: 8 }}
 					animate={{ opacity: 1, y: 0 }}
 					transition={{ duration: 0.28, ease: "easeOut" }}
 				>
-					<div className="flex items-center justify-center gap-3 mb-6">
+					<div className="flex items-center justify-center gap-2 lg:gap-3 mb-4 lg:mb-6">
 						<motion.div
 							animate={{ rotate: [0, -3, 3, 0] }}
 							transition={{ duration: 1.8, repeat: Number.POSITIVE_INFINITY, repeatDelay: 4 }}
 						>
-							<Cable className="text-cyan-400" size={48} />
+							<Cable className="text-cyan-400" size={40} />
 						</motion.div>
-						<h1 className="text-4xl font-black text-(--app-text)">CableOps</h1>
+						<h1 className="text-3xl lg:text-4xl font-black text-(--app-text)">CableOps</h1>
 					</div>
-					<p className="text-(--app-text-muted) text-lg mb-2">
+					<p className="text-(--app-text-muted) text-base lg:text-lg mb-2">
 						Ethernet Cable Connection Manager
 					</p>
-					<p className="text-(--app-text-muted) text-sm mb-8 max-w-md mx-auto">
+					<p className="text-(--app-text-muted) text-xs lg:text-sm mb-6 lg:mb-8 max-w-md mx-auto">
 						Visualize, plan, and document your network cable topology.
 						Drag-and-drop devices, connect ports, and keep track of every
 						connection.
 					</p>
-					<div className="flex items-center justify-center gap-4">
+					<div className="flex items-center justify-center gap-3">
 						<Link to="/auth/sign-in">
-							<Button className="bg-cyan-600 hover:bg-cyan-700 text-white px-6">
+							<Button className="bg-cyan-600 hover:bg-cyan-700 text-white px-5 lg:px-6 h-9 lg:h-10 rounded-lg">
 								Sign In
 							</Button>
 						</Link>
 						<Link to="/auth/sign-up">
 							<Button
 								variant="outline"
-								className="border-(--app-border) text-(--app-text) hover:bg-(--app-surface-hover) px-6"
+								className="border-(--app-border) text-(--app-text) hover:bg-(--app-surface-hover) px-5 lg:px-6 h-9 lg:h-10 rounded-lg"
 							>
 								Create Account
 							</Button>
@@ -133,7 +133,7 @@ function Dashboard() {
 					</div>
 
 					{/* Feature cards */}
-					<div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-12">
+					<div className="grid grid-cols-1 sm:grid-cols-3 gap-3 lg:gap-4 mt-8 lg:mt-12">
 						<FeatureCard
 							index={0}
 							icon={<Network size={24} />}
@@ -173,16 +173,16 @@ function Dashboard() {
 		createWorkspace.isPending || importSnapshot.isPending;
 
 	return (
-		<div className="min-h-full bg-(--app-bg) p-6">
-			<div className="max-w-4xl mx-auto">
-				<div className="flex items-center justify-between mb-8">
+		<div className="min-h-full bg-(--app-bg) p-4 lg:p-6">
+			<div className="max-w-5xl mx-auto">
+				<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 lg:mb-8">
 					<div>
-						<h2 className="text-2xl font-bold text-(--app-text)">Workspaces</h2>
-						<p className="text-sm text-(--app-text-muted) mt-1">
+						<h2 className="text-xl lg:text-2xl font-bold text-(--app-text)">Workspaces</h2>
+						<p className="text-xs lg:text-sm text-(--app-text-muted) mt-0.5 lg:mt-1">
 							Each workspace contains its own device topology
 						</p>
 					</div>
-					<div className="flex items-center gap-2">
+					<div className="flex items-center gap-2 shrink-0">
 						<input
 							ref={importInputRef}
 							type="file"
@@ -201,7 +201,7 @@ function Dashboard() {
 							variant="outline"
 							disabled={isImportingWorkspace}
 							onClick={() => importInputRef.current?.click()}
-							className="border-(--app-border) text-(--app-text) hover:bg-(--app-surface-hover)"
+							className="border-(--app-border) text-(--app-text) hover:bg-(--app-surface-hover) text-xs lg:text-sm"
 						>
 							Import JSON
 						</Button>
@@ -210,7 +210,7 @@ function Dashboard() {
 
 				{/* Create workspace */}
 				<form
-					className="flex gap-2 mb-8"
+					className="flex gap-2 mb-6 lg:mb-8"
 					onSubmit={(e) => {
 						e.preventDefault();
 						if (!newName.trim()) return;
@@ -260,7 +260,7 @@ function Dashboard() {
 					</motion.div>
 				)}
 
-				<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+				<div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 lg:gap-4">
 					{workspaces.map((ws, index) => (
 						<motion.div
 							key={ws.id}

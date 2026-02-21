@@ -19,15 +19,11 @@
     "biome",
     "nitro",
     "drizzle",
-    "form",
-    "mcp",
     "shadcn",
     "t3env",
     "table",
     "better-auth",
-    "store",
     "tanstack-query",
-    "db",
     "tRPC"
   ]
 }
