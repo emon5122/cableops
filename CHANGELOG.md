@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/emon5122/cableops/compare/v1.0.1...v1.0.2) (2026-02-21)
+
+
+### Bug Fixes
+
+* update Docker build platforms and add maintainer argument ([312016f](https://github.com/emon5122/cableops/commit/312016f9791e14f9b75a54dfb6d46a6f9b81242c))
+
 ## [1.0.1](https://github.com/emon5122/cableops/compare/v1.0.0...v1.0.1) (2026-02-21)
 
 
