@@ -173,6 +173,17 @@ export default function TopologyCanvas({
 	const [annLabelValue, setAnnLabelValue] = useState("");
 	const [selectedWire, setSelectedWire] = useState<string | null>(null);
 
+	/* ── Multi-selection (rubber-band + shift-click) ── */
+	const [multiSelectedDevices, setMultiSelectedDevices] = useState<Set<string>>(new Set());
+	const [multiSelectedAnnotations, setMultiSelectedAnnotations] = useState<Set<string>>(new Set());
+	const [selectionRect, setSelectionRect] = useState<{
+		active: boolean;
+		startX: number;
+		startY: number;
+		currentX: number;
+		currentY: number;
+	} | null>(null);
+
 	/* ── Zoom & fullscreen ── */
 	const [zoom, setZoom] = useState(1);
 	const zoomRef = useRef(1);
@@ -238,13 +249,68 @@ export default function TopologyCanvas({
 		[livePositions],
 	);
 
+	/* Helpers for annotation positions */
+	const getAnnPos = useCallback(
+		(ann: AnnotationRow) => {
+			const live = liveAnnPositions[ann.id];
+			return live ?? { x: ann.x, y: ann.y };
+		},
+		[liveAnnPositions],
+	);
+	const getAnnSize = useCallback(
+		(ann: AnnotationRow) => {
+			const live = liveAnnSizes[ann.id];
+			return live ?? { w: ann.width, h: ann.height };
+		},
+		[liveAnnSizes],
+	);
+
 	/* ── Drag handlers ── */
+	/* Store starting positions for group-move */
+	const groupDragStart = useRef<{
+		devices: Record<string, { x: number; y: number }>;
+		annotations: Record<string, { x: number; y: number }>;
+	} | null>(null);
+
 	const handleMouseDown = useCallback(
 		(e: React.MouseEvent, device: DeviceRow) => {
 			if (e.button !== 0) return;
 			e.preventDefault();
 			e.stopPropagation();
 			const pos = getDevicePos(device);
+
+			// Shift-click toggles multi-selection
+			if (e.shiftKey) {
+				setMultiSelectedDevices((prev) => {
+					const next = new Set(prev);
+					if (next.has(device.id)) next.delete(device.id);
+					else next.add(device.id);
+					return next;
+				});
+				return;
+			}
+
+			// If this device is part of multi-selection, start group drag
+			const isInMulti = multiSelectedDevices.has(device.id);
+			if (isInMulti && multiSelectedDevices.size > 1) {
+				// Store all starting positions for the group
+				const devStarts: Record<string, { x: number; y: number }> = {};
+				for (const id of multiSelectedDevices) {
+					const d = devices.find((dd) => dd.id === id);
+					if (d) devStarts[id] = getDevicePos(d);
+				}
+				const annStarts: Record<string, { x: number; y: number }> = {};
+				for (const id of multiSelectedAnnotations) {
+					const a = annotations.find((aa) => aa.id === id);
+					if (a) annStarts[id] = getAnnPos(a);
+				}
+				groupDragStart.current = { devices: devStarts, annotations: annStarts };
+			} else {
+				groupDragStart.current = null;
+				setMultiSelectedDevices(new Set());
+				setMultiSelectedAnnotations(new Set());
+			}
+
 			setDrag({
 				isDragging: true,
 				deviceId: device.id,
@@ -255,21 +321,56 @@ export default function TopologyCanvas({
 			});
 			onDeviceSelect(device.id);
 		},
-		[getDevicePos, onDeviceSelect],
+		[getDevicePos, onDeviceSelect, multiSelectedDevices, multiSelectedAnnotations, devices, annotations, getAnnPos],
 	);
 
 	const handleMouseMove = useCallback(
 		(e: React.MouseEvent) => {
+			// Rubber-band selection
+			if (selectionRect?.active) {
+				const rect = containerRef.current?.getBoundingClientRect();
+				if (rect) {
+					setSelectionRect((prev) =>
+						prev
+							? {
+									...prev,
+									currentX: (e.clientX - rect.left + (containerRef.current?.scrollLeft ?? 0)) / zoomRef.current,
+									currentY: (e.clientY - rect.top + (containerRef.current?.scrollTop ?? 0)) / zoomRef.current,
+								}
+							: prev,
+					);
+				}
+				return;
+			}
 			if (drag.isDragging && drag.deviceId) {
 				const dx = (e.clientX - drag.startMouseX) / zoomRef.current;
 				const dy = (e.clientY - drag.startMouseY) / zoomRef.current;
-				setLivePositions((prev) => ({
-					...prev,
-					[drag.deviceId as string]: {
-						x: Math.max(0, drag.startDeviceX + dx),
-						y: Math.max(0, drag.startDeviceY + dy),
-					},
-				}));
+
+				// Group drag: move all selected items
+				if (groupDragStart.current) {
+					setLivePositions((prev) => {
+						const next = { ...prev };
+						for (const [id, start] of Object.entries(groupDragStart.current!.devices)) {
+							next[id] = { x: Math.max(0, start.x + dx), y: Math.max(0, start.y + dy) };
+						}
+						return next;
+					});
+					setLiveAnnPositions((prev) => {
+						const next = { ...prev };
+						for (const [id, start] of Object.entries(groupDragStart.current!.annotations)) {
+							next[id] = { x: Math.max(0, start.x + dx), y: Math.max(0, start.y + dy) };
+						}
+						return next;
+					});
+				} else {
+					setLivePositions((prev) => ({
+						...prev,
+						[drag.deviceId as string]: {
+							x: Math.max(0, drag.startDeviceX + dx),
+							y: Math.max(0, drag.startDeviceY + dy),
+						},
+					}));
+				}
 				return;
 			}
 			if (annDrag.isDragging && annDrag.annId) {
@@ -296,14 +397,61 @@ export default function TopologyCanvas({
 				}));
 			}
 		},
-		[drag, annDrag, annResize],
+		[drag, annDrag, annResize, selectionRect],
 	);
 
 	const handleMouseUp = useCallback(() => {
+		// Rubber-band selection: compute which items fall within the rect
+		if (selectionRect?.active) {
+			const x1 = Math.min(selectionRect.startX, selectionRect.currentX);
+			const y1 = Math.min(selectionRect.startY, selectionRect.currentY);
+			const x2 = Math.max(selectionRect.startX, selectionRect.currentX);
+			const y2 = Math.max(selectionRect.startY, selectionRect.currentY);
+
+			// Only select if the rect is larger than a few pixels (avoid accidental clicks)
+			if (Math.abs(x2 - x1) > 5 || Math.abs(y2 - y1) > 5) {
+				const selDevices = new Set<string>();
+				for (const device of devices) {
+					const pos = getDevicePos(device);
+					const nodeW = DEVICE_NODE_WIDTH;
+					const nodeH = getDeviceNodeHeight(device.portCount);
+					// Check overlap
+					if (pos.x + nodeW > x1 && pos.x < x2 && pos.y + nodeH > y1 && pos.y < y2) {
+						selDevices.add(device.id);
+					}
+				}
+				const selAnns = new Set<string>();
+				for (const ann of annotations) {
+					const pos = getAnnPos(ann);
+					const sz = getAnnSize(ann);
+					if (pos.x + sz.w > x1 && pos.x < x2 && pos.y + sz.h > y1 && pos.y < y2) {
+						selAnns.add(ann.id);
+					}
+				}
+				setMultiSelectedDevices(selDevices);
+				setMultiSelectedAnnotations(selAnns);
+			}
+			setSelectionRect(null);
+			return;
+		}
+
 		if (drag.isDragging && drag.deviceId) {
-			const pos = livePositions[drag.deviceId];
-			if (pos) {
-				onDeviceMove(drag.deviceId, Math.round(pos.x), Math.round(pos.y));
+			if (groupDragStart.current) {
+				// Commit all group positions
+				for (const id of Object.keys(groupDragStart.current.devices)) {
+					const pos = livePositions[id];
+					if (pos) onDeviceMove(id, Math.round(pos.x), Math.round(pos.y));
+				}
+				for (const id of Object.keys(groupDragStart.current.annotations)) {
+					const pos = liveAnnPositions[id];
+					if (pos) onUpdateAnnotation(id, { x: Math.round(pos.x), y: Math.round(pos.y) });
+				}
+				groupDragStart.current = null;
+			} else {
+				const pos = livePositions[drag.deviceId];
+				if (pos) {
+					onDeviceMove(drag.deviceId, Math.round(pos.x), Math.round(pos.y));
+				}
 			}
 		}
 		if (annDrag.isDragging && annDrag.annId) {
@@ -349,6 +497,12 @@ export default function TopologyCanvas({
 			startH: 0,
 		});
 	}, [
+		selectionRect,
+		devices,
+		getDevicePos,
+		annotations,
+		getAnnPos,
+		getAnnSize,
 		drag,
 		livePositions,
 		onDeviceMove,
@@ -368,6 +522,8 @@ export default function TopologyCanvas({
 				setSelectedAnnotation(null);
 				setCanvasMenu(null);
 				setSelectedWire(null);
+				setMultiSelectedDevices(new Set());
+				setMultiSelectedAnnotations(new Set());
 			}
 		},
 		[onDeviceSelect],
@@ -395,22 +551,6 @@ export default function TopologyCanvas({
 			canvasY: (e.clientY - rect.top + (containerRef.current?.scrollTop ?? 0)) / zoomRef.current,
 		});
 	}, []);
-
-	/* Helpers for annotation positions */
-	const getAnnPos = useCallback(
-		(ann: AnnotationRow) => {
-			const live = liveAnnPositions[ann.id];
-			return live ?? { x: ann.x, y: ann.y };
-		},
-		[liveAnnPositions],
-	);
-	const getAnnSize = useCallback(
-		(ann: AnnotationRow) => {
-			const live = liveAnnSizes[ann.id];
-			return live ?? { w: ann.width, h: ann.height };
-		},
-		[liveAnnSizes],
-	);
 
 	/* ── Port absolute position ── */
 	const getAbsolutePortPos = useCallback(
@@ -829,6 +969,16 @@ export default function TopologyCanvas({
 					"radial-gradient(circle, var(--app-canvas-dot) 1px, transparent 1px)",
 				backgroundSize: `${24 * zoom}px ${24 * zoom}px`,
 			}}
+			onMouseDown={(e) => {
+				// Start rubber-band selection when clicking on the canvas background
+				if (e.button !== 0) return;
+				if (e.target !== containerRef.current && e.target !== canvasInnerRef.current) return;
+				const rect = containerRef.current?.getBoundingClientRect();
+				if (!rect) return;
+				const x = (e.clientX - rect.left + (containerRef.current?.scrollLeft ?? 0)) / zoomRef.current;
+				const y = (e.clientY - rect.top + (containerRef.current?.scrollTop ?? 0)) / zoomRef.current;
+				setSelectionRect({ active: true, startX: x, startY: y, currentX: x, currentY: y });
+			}}
 			onMouseMove={handleMouseMove}
 			onMouseUp={handleMouseUp}
 			onMouseLeave={handleMouseUp}
@@ -922,12 +1072,13 @@ export default function TopologyCanvas({
 				const pos = getAnnPos(ann);
 				const sz = getAnnSize(ann);
 				const isSel = selectedAnnotation === ann.id;
+				const isMultiSel = multiSelectedAnnotations.has(ann.id);
 				const isEditing = editingAnnLabel === ann.id;
 
 				return (
 					<div
 						key={ann.id}
-						className={`absolute group ${isSel ? "ring-2 ring-blue-400" : ""}`}
+						className={`absolute group ${isMultiSel ? "ring-2 ring-cyan-400/50" : isSel ? "ring-2 ring-blue-400" : ""}`}
 						style={{
 							left: pos.x,
 							top: pos.y,
@@ -942,6 +1093,15 @@ export default function TopologyCanvas({
 							if (e.button !== 0) return;
 							e.preventDefault();
 							e.stopPropagation();
+							if (e.shiftKey) {
+								setMultiSelectedAnnotations((prev) => {
+									const next = new Set(prev);
+									if (next.has(ann.id)) next.delete(ann.id);
+									else next.add(ann.id);
+									return next;
+								});
+								return;
+							}
 							setSelectedAnnotation(ann.id);
 							setAnnDrag({
 								isDragging: true,
@@ -1049,6 +1209,7 @@ export default function TopologyCanvas({
 				const pos = getDevicePos(device);
 				const nodeHeight = getDeviceNodeHeight(device.portCount);
 				const isSelected = selectedDeviceId === device.id;
+				const isMultiSelected = multiSelectedDevices.has(device.id);
 				const textColor = luminance(device.color) > 0.5 ? "#000" : "#fff";
 				const caps = DEVICE_CAPABILITIES[device.deviceType as DeviceType];
 				const typeLabel =
@@ -1090,9 +1251,11 @@ export default function TopologyCanvas({
 					>
 						<div
 							className={`rounded-xl border-2 shadow-lg transition-shadow ${chassisClass} ${
-								isSelected
-									? "border-white/50 shadow-white/10"
-									: "border-(--app-border) shadow-black/30"
+								isMultiSelected
+									? "border-cyan-400 shadow-cyan-400/20 ring-2 ring-cyan-400/30"
+									: isSelected
+										? "border-white/50 shadow-white/10"
+										: "border-(--app-border) shadow-black/30"
 							}`}
 							style={{ background: "var(--app-surface)", height: "100%" }}
 						>
@@ -1745,6 +1908,20 @@ export default function TopologyCanvas({
 					</div>
 				</motion.div>
 			)}
+			{/* Rubber-band selection rectangle */}
+			{selectionRect?.active && (
+				<div
+					className="absolute border-2 border-cyan-400 bg-cyan-400/10 pointer-events-none"
+					style={{
+						left: Math.min(selectionRect.startX, selectionRect.currentX) * zoom,
+						top: Math.min(selectionRect.startY, selectionRect.currentY) * zoom,
+						width: Math.abs(selectionRect.currentX - selectionRect.startX) * zoom,
+						height: Math.abs(selectionRect.currentY - selectionRect.startY) * zoom,
+						zIndex: 9998,
+					}}
+				/>
+			)}
+
 			</div>{/* end canvasInnerRef */}
 
 			{/* Port context menu — z-index 100 */}
