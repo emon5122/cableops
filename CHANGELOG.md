@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/emon5122/cableops/compare/v1.0.0...v1.0.1) (2026-02-21)
+
+
+### Bug Fixes
+
+* update Dockerfile path and display app version in Header component ([e5bc042](https://github.com/emon5122/cableops/commit/e5bc042f1e1f5290f5ccebeb8c7a6cc8985489a1))
+
 ## 1.0.0 (2026-02-21)
 
 
