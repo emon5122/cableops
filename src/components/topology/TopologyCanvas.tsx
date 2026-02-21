@@ -204,6 +204,25 @@ export default function TopologyCanvas({
 		return () => document.removeEventListener("fullscreenchange", onFsChange);
 	}, []);
 
+	// Ctrl+A to select all devices & annotations
+	useEffect(() => {
+		const onKeyDown = (e: KeyboardEvent) => {
+			if ((e.ctrlKey || e.metaKey) && e.key === "a") {
+				// Only handle when our container (or child) is focused / active
+				if (!containerRef.current?.contains(document.activeElement) && document.activeElement !== document.body) return;
+				e.preventDefault();
+				setMultiSelectedDevices(new Set(devices.map((d) => d.id)));
+				setMultiSelectedAnnotations(new Set(annotations.map((a) => a.id)));
+			}
+			if (e.key === "Escape") {
+				setMultiSelectedDevices(new Set());
+				setMultiSelectedAnnotations(new Set());
+			}
+		};
+		document.addEventListener("keydown", onKeyDown);
+		return () => document.removeEventListener("keydown", onKeyDown);
+	}, [devices, annotations]);
+
 	const toggleFullscreen = useCallback(() => {
 		if (!containerRef.current) return;
 		if (document.fullscreenElement) {
@@ -279,8 +298,8 @@ export default function TopologyCanvas({
 			e.stopPropagation();
 			const pos = getDevicePos(device);
 
-			// Shift-click toggles multi-selection
-			if (e.shiftKey) {
+			// Shift-click or Cmd-click (Mac) toggles multi-selection
+			if (e.shiftKey || e.metaKey) {
 				setMultiSelectedDevices((prev) => {
 					const next = new Set(prev);
 					if (next.has(device.id)) next.delete(device.id);
@@ -515,7 +534,14 @@ export default function TopologyCanvas({
 
 	const handleCanvasClick = useCallback(
 		(e: React.MouseEvent) => {
-			if (e.target === containerRef.current || e.target === e.currentTarget) {
+			// Clear selection when clicking canvas background (container, inner div, or SVG overlay)
+			const target = e.target as HTMLElement;
+			if (
+				target === containerRef.current ||
+				target === canvasInnerRef.current ||
+				target === e.currentTarget ||
+				target.tagName === "svg"
+			) {
 				onDeviceSelect(null);
 				setContextMenu(null);
 				setDeviceMenu(null);
@@ -1093,7 +1119,7 @@ export default function TopologyCanvas({
 							if (e.button !== 0) return;
 							e.preventDefault();
 							e.stopPropagation();
-							if (e.shiftKey) {
+							if (e.shiftKey || e.metaKey) {
 								setMultiSelectedAnnotations((prev) => {
 									const next = new Set(prev);
 									if (next.has(ann.id)) next.delete(ann.id);
