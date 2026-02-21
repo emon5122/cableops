@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/emon5122/cableops/compare/v1.1.0...v1.1.1) (2026-02-21)
+
+
+### Bug Fixes
+
+* add multi-selection support with Ctrl+A and improved Shift/Cmd-click functionality in TopologyCanvas ([8d40632](https://github.com/emon5122/cableops/commit/8d40632b5e9f9857fa846b82c001a7f6cc1f438f))
+
 ## [1.1.0](https://github.com/emon5122/cableops/compare/v1.0.2...v1.1.0) (2026-02-21)
 
 
