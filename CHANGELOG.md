@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/emon5122/cableops/compare/v1.0.2...v1.1.0) (2026-02-21)
+
+
+### Features
+
+* implement multi-selection and rubber-band selection in TopologyCanvas ([a0cf739](https://github.com/emon5122/cableops/commit/a0cf73930ee41214f9e71c22a3af08b20a1e1064))
+
 ## [1.0.2](https://github.com/emon5122/cableops/compare/v1.0.1...v1.0.2) (2026-02-21)
 
 
