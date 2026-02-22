@@ -1,15 +1,15 @@
 import { db } from "@/db";
 import * as schema from "@/db/schema";
 import {
-    type ConnectionRow,
-    type DeviceRow,
-    getNetworkSegment,
-    type InterfaceRow,
-    parseIp,
+	type ConnectionRow,
+	type DeviceRow,
+	getNetworkSegment,
+	type InterfaceRow,
+	parseIp,
 } from "@/lib/topology-types";
 import { workspaceSnapshotSchema } from "@/lib/workspace-snapshot-schema";
 import type { TRPCRouterRecord } from "@trpc/server";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "./init";
 
@@ -102,17 +102,269 @@ const workspacesRouter = {
 			return rows[0] ?? null;
 		}),
 
+	/** Get the current user's permission level for a workspace */
+	getPermission: publicProcedure
+		.input(z.object({ workspaceId: z.string() }))
+		.query(async ({ input, ctx }) => {
+			const ws = await db
+				.select()
+				.from(schema.workspaces)
+				.where(eq(schema.workspaces.id, input.workspaceId));
+			const workspace = ws[0];
+			if (!workspace) return { permission: "none" as const };
+
+			// Unclaimed workspaces are editable by anyone (anonymous draft)
+			if (!workspace.ownerId) {
+				return { permission: "owner" as const, mode: workspace.mode };
+			}
+
+			const userId = ctx.userId;
+			if (!userId) return { permission: "viewer" as const, mode: workspace.mode };
+
+			if (workspace.ownerId === userId) {
+				return { permission: "owner" as const, mode: workspace.mode };
+			}
+
+			// Check if user is a member
+			const members = await db
+				.select()
+				.from(schema.workspaceMembers)
+				.where(
+					and(
+						eq(schema.workspaceMembers.workspaceId, input.workspaceId),
+						eq(schema.workspaceMembers.userId, userId),
+					),
+				);
+
+			if (members.length > 0) {
+				// Member in collaboration mode can edit; in presentation mode they view
+				if (workspace.mode === "collaboration") {
+					return { permission: "collaborator" as const, mode: workspace.mode };
+				}
+				return { permission: "viewer" as const, mode: workspace.mode };
+			}
+
+			return { permission: "viewer" as const, mode: workspace.mode };
+		}),
+
 	create: publicProcedure
-		.input(z.object({ name: z.string().min(1), ownerId: z.string() }))
+		.input(z.object({ name: z.string().min(1), ownerId: z.string().optional() }))
 		.mutation(async ({ input }) => {
 			const id = crypto.randomUUID();
 			const rows = await db
 				.insert(schema.workspaces)
-				.values({ id, name: input.name, ownerId: input.ownerId })
+				.values({ id, name: input.name, ownerId: input.ownerId ?? null })
 				.returning();
 			const row = rows[0];
 			if (!row) throw new Error("Failed to create workspace");
 			return row;
+		}),
+
+	/** Create an anonymous workspace (no owner) */
+	createAnonymous: publicProcedure
+		.input(z.object({ name: z.string().min(1).default("My Workspace") }))
+		.mutation(async () => {
+			const id = crypto.randomUUID();
+			const rows = await db
+				.insert(schema.workspaces)
+				.values({ id, name: "My Workspace", ownerId: null })
+				.returning();
+			const row = rows[0];
+			if (!row) throw new Error("Failed to create workspace");
+			return row;
+		}),
+
+	/** Claim an ownerless workspace for the current signed-in user */
+	claimOwnership: publicProcedure
+		.input(z.object({ workspaceId: z.string() }))
+		.mutation(async ({ input, ctx }) => {
+			if (!ctx.userId) throw new Error("Must be signed in to claim a workspace");
+
+			const ws = await db
+				.select()
+				.from(schema.workspaces)
+				.where(eq(schema.workspaces.id, input.workspaceId));
+			const workspace = ws[0];
+			if (!workspace) throw new Error("Workspace not found");
+			if (workspace.ownerId) throw new Error("Workspace already has an owner");
+
+			const rows = await db
+				.update(schema.workspaces)
+				.set({ ownerId: ctx.userId })
+				.where(eq(schema.workspaces.id, input.workspaceId))
+				.returning();
+			return rows[0] ?? null;
+		}),
+
+	/** Toggle workspace mode between presentation and collaboration */
+	setMode: publicProcedure
+		.input(z.object({ workspaceId: z.string(), mode: z.enum(["presentation", "collaboration"]) }))
+		.mutation(async ({ input, ctx }) => {
+			if (!ctx.userId) throw new Error("Must be signed in");
+
+			const ws = await db
+				.select()
+				.from(schema.workspaces)
+				.where(eq(schema.workspaces.id, input.workspaceId));
+			const workspace = ws[0];
+			if (!workspace) throw new Error("Workspace not found");
+			if (workspace.ownerId !== ctx.userId) throw new Error("Only the owner can change workspace mode");
+
+			const rows = await db
+				.update(schema.workspaces)
+				.set({ mode: input.mode })
+				.where(eq(schema.workspaces.id, input.workspaceId))
+				.returning();
+			return rows[0] ?? null;
+		}),
+
+	/** Join a workspace via share link — auto-adds signed-in user as member */
+	joinViaShare: publicProcedure
+		.input(z.object({ token: z.string().min(8) }))
+		.mutation(async ({ input, ctx }) => {
+			if (!ctx.userId) return { joined: false, workspaceId: null };
+
+			const shareRows = await db
+				.select()
+				.from(schema.workspaceShares)
+				.where(eq(schema.workspaceShares.token, input.token));
+			const share = shareRows[0];
+			if (!share) throw new Error("Invalid share token");
+
+			// Check if workspace exists
+			const wsRows = await db
+				.select()
+				.from(schema.workspaces)
+				.where(eq(schema.workspaces.id, share.workspaceId));
+			const workspace = wsRows[0];
+			if (!workspace) throw new Error("Workspace not found");
+
+			// Don't add owner as member
+			if (workspace.ownerId === ctx.userId) {
+				return { joined: false, workspaceId: share.workspaceId };
+			}
+
+			// Check if already a member
+			const existing = await db
+				.select()
+				.from(schema.workspaceMembers)
+				.where(
+					and(
+						eq(schema.workspaceMembers.workspaceId, share.workspaceId),
+						eq(schema.workspaceMembers.userId, ctx.userId),
+					),
+				);
+			if (existing.length > 0) {
+				return { joined: false, workspaceId: share.workspaceId };
+			}
+
+			const id = crypto.randomUUID();
+			await db.insert(schema.workspaceMembers).values({
+				id,
+				workspaceId: share.workspaceId,
+				userId: ctx.userId,
+			});
+			return { joined: true, workspaceId: share.workspaceId };
+		}),
+
+	/** List members of a workspace */
+	listMembers: publicProcedure
+		.input(z.object({ workspaceId: z.string() }))
+		.query(async ({ input }) => {
+			const members = await db
+				.select({
+					id: schema.workspaceMembers.id,
+					userId: schema.workspaceMembers.userId,
+					userName: schema.user.name,
+					userEmail: schema.user.email,
+					joinedAt: schema.workspaceMembers.joinedAt,
+				})
+				.from(schema.workspaceMembers)
+				.innerJoin(schema.user, eq(schema.workspaceMembers.userId, schema.user.id))
+				.where(eq(schema.workspaceMembers.workspaceId, input.workspaceId));
+			return members;
+		}),
+
+	removeMember: publicProcedure
+		.input(z.object({ workspaceId: z.string(), memberId: z.string() }))
+		.mutation(async ({ input, ctx }) => {
+			if (!ctx.userId) throw new Error("Must be signed in");
+			const wsRows = await db
+				.select()
+				.from(schema.workspaces)
+				.where(eq(schema.workspaces.id, input.workspaceId));
+			const ws = wsRows[0];
+			if (!ws || ws.ownerId !== ctx.userId) throw new Error("Only the owner can remove members");
+			await db
+				.delete(schema.workspaceMembers)
+				.where(eq(schema.workspaceMembers.id, input.memberId));
+			return { success: true };
+		}),
+
+	listShares: publicProcedure
+		.input(z.object({ workspaceId: z.string() }))
+		.query(async ({ input, ctx }) => {
+			if (!ctx.userId) return [];
+			const wsRows = await db
+				.select()
+				.from(schema.workspaces)
+				.where(eq(schema.workspaces.id, input.workspaceId));
+			const ws = wsRows[0];
+			if (!ws || ws.ownerId !== ctx.userId) return [];
+			const shares = await db
+				.select()
+				.from(schema.workspaceShares)
+				.where(eq(schema.workspaceShares.workspaceId, input.workspaceId));
+			return shares;
+		}),
+
+	deleteShare: publicProcedure
+		.input(z.object({ shareId: z.string() }))
+		.mutation(async ({ input, ctx }) => {
+			if (!ctx.userId) throw new Error("Must be signed in");
+			const shareRows = await db
+				.select()
+				.from(schema.workspaceShares)
+				.where(eq(schema.workspaceShares.id, input.shareId));
+			const share = shareRows[0];
+			if (!share) throw new Error("Share not found");
+			const wsRows = await db
+				.select()
+				.from(schema.workspaces)
+				.where(eq(schema.workspaces.id, share.workspaceId));
+			const ws = wsRows[0];
+			if (!ws || ws.ownerId !== ctx.userId) throw new Error("Only the owner can delete share links");
+			await db
+				.delete(schema.workspaceShares)
+				.where(eq(schema.workspaceShares.id, input.shareId));
+			return { success: true };
+		}),
+
+	listOwned: publicProcedure
+		.query(async ({ ctx }) => {
+			if (!ctx.userId) return [];
+			const owned = await db
+				.select()
+				.from(schema.workspaces)
+				.where(eq(schema.workspaces.ownerId, ctx.userId));
+			const results = await Promise.all(
+				owned.map(async (ws) => {
+					const memberCount = await db
+						.select({ count: sql<number>`count(*)` })
+						.from(schema.workspaceMembers)
+						.where(eq(schema.workspaceMembers.workspaceId, ws.id));
+					const shareCount = await db
+						.select({ count: sql<number>`count(*)` })
+						.from(schema.workspaceShares)
+						.where(eq(schema.workspaceShares.workspaceId, ws.id));
+					return {
+						...ws,
+						memberCount: Number(memberCount[0]?.count ?? 0),
+						shareCount: Number(shareCount[0]?.count ?? 0),
+					};
+				}),
+			);
+			return results;
 		}),
 
 	update: publicProcedure
@@ -133,14 +385,17 @@ const workspacesRouter = {
 		),
 
 	createShare: publicProcedure
-		.input(z.object({ workspaceId: z.string(), createdBy: z.string() }))
-		.mutation(async ({ input }) => {
+		.input(z.object({ workspaceId: z.string() }))
+		.mutation(async ({ input, ctx }) => {
+			if (!ctx.userId) throw new Error("Must be signed in to create a share link");
+
 			const wsRows = await db
 				.select()
 				.from(schema.workspaces)
 				.where(eq(schema.workspaces.id, input.workspaceId));
 			const ws = wsRows[0];
 			if (!ws) throw new Error("Workspace not found");
+			if (ws.ownerId !== ctx.userId) throw new Error("Only the owner can share a workspace");
 
 			const existing = await db
 				.select()
@@ -156,7 +411,7 @@ const workspacesRouter = {
 					id,
 					workspaceId: input.workspaceId,
 					token,
-					createdBy: input.createdBy,
+					createdBy: ctx.userId,
 				})
 				.returning();
 			const row = rows[0];

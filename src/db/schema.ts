@@ -71,13 +71,36 @@ export const workspaces = pgTable(
 	{
 		id: text("id").primaryKey(),
 		name: text("name").notNull(),
-		ownerId: text("owner_id")
-			.notNull()
-			.references(() => user.id, { onDelete: "cascade" }),
+		ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
+		/** "presentation" | "collaboration" — controls who can edit */
+		mode: text("mode").notNull().default("presentation"),
 		createdAt: timestamp("created_at").defaultNow(),
 	},
 	(table) => ({
 		ownerIdx: index("workspaces_owner_idx").on(table.ownerId),
+	}),
+);
+
+/** Workspace collaborators — users who joined via share link */
+export const workspaceMembers = pgTable(
+	"workspace_members",
+	{
+		id: text("id").primaryKey(),
+		workspaceId: text("workspace_id")
+			.notNull()
+			.references(() => workspaces.id, { onDelete: "cascade" }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		joinedAt: timestamp("joined_at").defaultNow(),
+	},
+	(table) => ({
+		workspaceIdx: index("workspace_members_workspace_idx").on(table.workspaceId),
+		userIdx: index("workspace_members_user_idx").on(table.userId),
+		uniqueMember: uniqueIndex("workspace_members_unique").on(
+			table.workspaceId,
+			table.userId,
+		),
 	}),
 );
 
@@ -89,9 +112,9 @@ export const workspaceShares = pgTable(
 			.notNull()
 			.references(() => workspaces.id, { onDelete: "cascade" }),
 		token: text("token").notNull(),
-		createdBy: text("created_by")
-			.notNull()
-			.references(() => user.id, { onDelete: "cascade" }),
+		createdBy: text("created_by").references(() => user.id, {
+			onDelete: "cascade",
+		}),
 		createdAt: timestamp("created_at").defaultNow(),
 	},
 	(table) => ({

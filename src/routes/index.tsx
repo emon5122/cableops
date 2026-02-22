@@ -6,8 +6,10 @@ import { safeParseWorkspaceSnapshot } from "@/lib/workspace-snapshot-schema";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { motion } from "framer-motion";
-import { ArrowRight, Cable, Folder, Network, Plus, Trash2 } from "lucide-react";
-import { useRef, useState } from "react";
+import { ArrowRight, Link2, Network, Plus, Trash2, Users } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+
+const ANON_WORKSPACE_KEY = "cableops-workspace-id";
 
 export const Route = createFileRoute("/")({ component: Dashboard });
 
@@ -19,23 +21,36 @@ function Dashboard() {
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
+	const [anonRedirecting, setAnonRedirecting] = useState(false);
 
 	const userId = session?.user?.id ?? "";
 
-	const workspacesQuery = useQuery(
-		trpc.workspaces.list.queryOptions(
-			{ ownerId: userId },
-			{ enabled: !!userId },
-		),
-	);
+	const workspacesQuery = useQuery({
+		...trpc.workspaces.listOwned.queryOptions(),
+		enabled: !!userId,
+	});
 
 	const createWorkspace = useMutation(
 		trpc.workspaces.create.mutationOptions({
 			onSuccess: () => {
 				void queryClient.invalidateQueries({
-					queryKey: trpc.workspaces.list.queryKey({ ownerId: userId }),
+					queryKey: trpc.workspaces.listOwned.queryKey(),
 				});
 				setNewName("");
+			},
+		}),
+	);
+
+	const createAnonymousWorkspace = useMutation(
+		trpc.workspaces.createAnonymous.mutationOptions(),
+	);
+
+	const claimOwnership = useMutation(
+		trpc.workspaces.claimOwnership.mutationOptions({
+			onSuccess: () => {
+				void queryClient.invalidateQueries({
+					queryKey: trpc.workspaces.listOwned.queryKey(),
+				});
 			},
 		}),
 	);
@@ -44,7 +59,7 @@ function Dashboard() {
 		trpc.workspaces.delete.mutationOptions({
 			onSuccess: () => {
 				void queryClient.invalidateQueries({
-					queryKey: trpc.workspaces.list.queryKey({ ownerId: userId }),
+					queryKey: trpc.workspaces.listOwned.queryKey(),
 				});
 			},
 		}),
@@ -53,6 +68,56 @@ function Dashboard() {
 	const importSnapshot = useMutation(
 		trpc.workspaces.importSnapshot.mutationOptions(),
 	);
+
+	/* ── Anonymous user: auto-create workspace and redirect ── */
+	useEffect(() => {
+		if (authLoading || session?.user || anonRedirecting) return;
+
+		// Check if there's already an anon workspace
+		const existingId = localStorage.getItem(ANON_WORKSPACE_KEY);
+		if (existingId) {
+			setAnonRedirecting(true);
+			void navigate({
+				to: "/workspace/$workspaceId",
+				params: { workspaceId: existingId },
+				replace: true,
+			});
+			return;
+		}
+
+		// Create new anonymous workspace
+		setAnonRedirecting(true);
+		createAnonymousWorkspace.mutate(
+			{ name: "My Workspace" },
+			{
+				onSuccess: (ws) => {
+					localStorage.setItem(ANON_WORKSPACE_KEY, ws.id);
+					void navigate({
+						to: "/workspace/$workspaceId",
+						params: { workspaceId: ws.id },
+						replace: true,
+					});
+				},
+			},
+		);
+	}, [authLoading, session, anonRedirecting, navigate, createAnonymousWorkspace]);
+
+	/* ── Signed-in user: claim localStorage workspace if one exists ── */
+	useEffect(() => {
+		if (authLoading || !session?.user) return;
+		const anonId = localStorage.getItem(ANON_WORKSPACE_KEY);
+		if (!anonId) return;
+
+		// Attempt to claim and clear localStorage
+		claimOwnership.mutate(
+			{ workspaceId: anonId },
+			{
+				onSettled: () => {
+					localStorage.removeItem(ANON_WORKSPACE_KEY);
+				},
+			},
+		);
+	}, [authLoading, session?.user?.id]);
 
 	const handleImportWorkspaceJson = async (file: File) => {
 		if (!userId) return;
@@ -78,7 +143,7 @@ function Dashboard() {
 			});
 
 			await queryClient.invalidateQueries({
-				queryKey: trpc.workspaces.list.queryKey({ ownerId: userId }),
+				queryKey: trpc.workspaces.listOwned.queryKey(),
 			});
 
 			void navigate({
@@ -90,71 +155,11 @@ function Dashboard() {
 		}
 	};
 
-	/* ── Not signed in ── */
+	/* ── Not signed in — redirect is happening ── */
 	if (!authLoading && !session?.user) {
 		return (
-			<div className="min-h-full flex items-center justify-center bg-(--app-bg) p-4 lg:p-6">
-				<motion.div
-					className="max-w-lg text-center w-full"
-					initial={{ opacity: 0, y: 8 }}
-					animate={{ opacity: 1, y: 0 }}
-					transition={{ duration: 0.28, ease: "easeOut" }}
-				>
-					<div className="flex items-center justify-center gap-2 lg:gap-3 mb-4 lg:mb-6">
-						<motion.div
-							animate={{ rotate: [0, -3, 3, 0] }}
-							transition={{ duration: 1.8, repeat: Number.POSITIVE_INFINITY, repeatDelay: 4 }}
-						>
-							<Cable className="text-cyan-400" size={40} />
-						</motion.div>
-						<h1 className="text-3xl lg:text-4xl font-black text-(--app-text)">CableOps</h1>
-					</div>
-					<p className="text-(--app-text-muted) text-base lg:text-lg mb-2">
-						Ethernet Cable Connection Manager
-					</p>
-					<p className="text-(--app-text-muted) text-xs lg:text-sm mb-6 lg:mb-8 max-w-md mx-auto">
-						Visualize, plan, and document your network cable topology.
-						Drag-and-drop devices, connect ports, and keep track of every
-						connection.
-					</p>
-					<div className="flex items-center justify-center gap-3">
-						<Link to="/auth/sign-in">
-							<Button className="bg-cyan-600 hover:bg-cyan-700 text-white px-5 lg:px-6 h-9 lg:h-10 rounded-lg">
-								Sign In
-							</Button>
-						</Link>
-						<Link to="/auth/sign-up">
-							<Button
-								variant="outline"
-								className="border-(--app-border) text-(--app-text) hover:bg-(--app-surface-hover) px-5 lg:px-6 h-9 lg:h-10 rounded-lg"
-							>
-								Create Account
-							</Button>
-						</Link>
-					</div>
-
-					{/* Feature cards */}
-					<div className="grid grid-cols-1 sm:grid-cols-3 gap-3 lg:gap-4 mt-8 lg:mt-12">
-						<FeatureCard
-							index={0}
-							icon={<Network size={24} />}
-							title="Visual Topology"
-							desc="Drag-and-drop network devices on an interactive canvas"
-						/>
-						<FeatureCard
-							index={1}
-							icon={<Cable size={24} />}
-							title="Port Management"
-							desc="Connect ports with click-to-link, track aliases & VLANs"
-						/>
-						<FeatureCard
-							index={2}
-							icon={<Folder size={24} />}
-							title="Workspaces"
-							desc="Organize projects into separate workspaces"
-						/>
-					</div>
-				</motion.div>
+			<div className="min-h-full flex items-center justify-center bg-(--app-bg)">
+				<div className="animate-pulse text-(--app-text-muted)">Setting up your workspace…</div>
 			</div>
 		);
 	}
@@ -168,7 +173,7 @@ function Dashboard() {
 		);
 	}
 
-	/* ── Dashboard ── */
+	/* ── Dashboard (signed in) ── */
 	const workspaces = workspacesQuery.data ?? [];
 	const isImportingWorkspace =
 		createWorkspace.isPending || importSnapshot.isPending;
@@ -311,49 +316,46 @@ function Dashboard() {
 									<Trash2 size={14} />
 								</button>
 							</div>
+
+							{/* Stats row: members + share links */}
+							<div className="flex items-center gap-3 mb-3 text-[11px] text-(--app-text-muted)">
+								<span className="flex items-center gap-1" title={`${ws.memberCount} member${ws.memberCount !== 1 ? "s" : ""}`}>
+									<Users size={11} className="text-(--app-text-muted)" />
+									{ws.memberCount} member{ws.memberCount !== 1 ? "s" : ""}
+								</span>
+								<span className="flex items-center gap-1" title={`${ws.shareCount} share link${ws.shareCount !== 1 ? "s" : ""}`}>
+									<Link2 size={11} className="text-(--app-text-muted)" />
+									{ws.shareCount} link{ws.shareCount !== 1 ? "s" : ""}
+								</span>
+								<span className={`ml-auto px-1.5 py-0.5 rounded text-[10px] font-medium ${
+									ws.mode === "collaboration"
+										? "bg-emerald-500/15 text-emerald-400"
+										: "bg-amber-500/15 text-amber-400"
+								}`}>
+									{ws.mode === "collaboration" ? "Collab" : "Presenting"}
+								</span>
+							</div>
+
 							<p className="text-xs text-(--app-text-muted) mb-3">
 								Created{" "}
 								{ws.createdAt
 									? new Date(ws.createdAt).toLocaleDateString()
 									: "recently"}
 							</p>
-							<Link
-								to="/workspace/$workspaceId"
-								params={{ workspaceId: ws.id }}
-								className="flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 font-medium transition-colors"
-							>
-								Open workspace <ArrowRight size={12} />
-							</Link>
+
+							<div className="flex items-center justify-between">
+								<Link
+									to="/workspace/$workspaceId"
+									params={{ workspaceId: ws.id }}
+									className="flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 font-medium transition-colors"
+								>
+									Open workspace <ArrowRight size={12} />
+								</Link>
+							</div>
 						</motion.div>
 					))}
 				</div>
 			</div>
 		</div>
-	);
-}
-
-function FeatureCard({
-	icon,
-	title,
-	desc,
-	index = 0,
-}: {
-	icon: React.ReactNode;
-	title: string;
-	desc: string;
-	index?: number;
-}) {
-	return (
-		<motion.div
-			className="bg-(--app-surface) border border-(--app-border) rounded-xl p-5 text-left"
-			initial={{ opacity: 0, y: 6 }}
-			animate={{ opacity: 1, y: 0 }}
-			transition={{ duration: 0.22, delay: index * 0.04 }}
-			whileHover={{ y: -2 }}
-		>
-			<div className="text-cyan-400 mb-3">{icon}</div>
-			<h3 className="text-sm font-bold text-(--app-text) mb-1">{title}</h3>
-			<p className="text-xs text-(--app-text-muted) leading-relaxed">{desc}</p>
-		</motion.div>
 	);
 }
