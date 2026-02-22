@@ -14,6 +14,7 @@ export const Route = createFileRoute("/")({ component: Dashboard });
 function Dashboard() {
 	const { data: session, isPending: authLoading } = authClient.useSession();
 	const [newName, setNewName] = useState("");
+	const [isCreating, setIsCreating] = useState(false);
 	const importInputRef = useRef<HTMLInputElement | null>(null);
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
@@ -208,34 +209,6 @@ function Dashboard() {
 					</div>
 				</div>
 
-				{/* Create workspace */}
-				<form
-					className="flex gap-2 mb-6 lg:mb-8"
-					onSubmit={(e) => {
-						e.preventDefault();
-						if (!newName.trim()) return;
-						createWorkspace.mutate({
-							name: newName.trim(),
-							ownerId: userId,
-						});
-					}}
-				>
-					<Input
-						value={newName}
-						onChange={(e) => setNewName(e.target.value)}
-						placeholder="New workspace name…"
-						className="bg-(--app-surface) border-(--app-border) text-(--app-text) flex-1"
-					/>
-					<Button
-						type="submit"
-						disabled={createWorkspace.isPending}
-						className="bg-cyan-600 hover:bg-cyan-700 text-white"
-					>
-						<Plus size={16} />
-						Create
-					</Button>
-				</form>
-
 				{/* Workspace cards */}
 				{workspacesQuery.isLoading && (
 					<div className="text-(--app-text-muted) text-sm animate-pulse">
@@ -243,24 +216,75 @@ function Dashboard() {
 					</div>
 				)}
 
-				{workspaces.length === 0 && !workspacesQuery.isLoading && (
-					<motion.div
-						className="text-center py-16"
-						initial={{ opacity: 0, y: 8 }}
-						animate={{ opacity: 1, y: 0 }}
-						transition={{ duration: 0.24 }}
-					>
-						<Network
-							size={48}
-							className="mx-auto text-(--app-text-muted) opacity-30 mb-4"
-						/>
-						<p className="text-(--app-text-muted)">
-							No workspaces yet. Create one to get started!
-						</p>
-					</motion.div>
-				)}
-
 				<div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 lg:gap-4">
+					{/* Create New Workspace Card */}
+					{!workspacesQuery.isLoading && (
+						<motion.div
+							className={`bg-(--app-surface)/50 border-2 border-dashed border-(--app-border) rounded-xl p-4 transition-all flex flex-col justify-center min-h-30 ${
+								isCreating
+									? "border-cyan-500/50 bg-(--app-surface)"
+									: "hover:border-cyan-500/50 hover:bg-(--app-surface) cursor-pointer items-center"
+							}`}
+							onClick={() => !isCreating && setIsCreating(true)}
+							initial={{ opacity: 0, y: 8 }}
+							animate={{ opacity: 1, y: 0 }}
+							transition={{ duration: 0.2 }}
+						>
+							{isCreating ? (
+								<form
+									className="w-full flex flex-col gap-3"
+									onSubmit={(e) => {
+										e.preventDefault();
+										if (!newName.trim()) return;
+										createWorkspace.mutate({
+											name: newName.trim(),
+											ownerId: userId,
+										});
+										setIsCreating(false);
+									}}
+								>
+									<Input
+										autoFocus
+										value={newName}
+										onChange={(e) => setNewName(e.target.value)}
+										placeholder="Workspace name…"
+										className="bg-(--app-bg) border-(--app-border) text-(--app-text) w-full"
+									/>
+									<div className="flex gap-2 justify-end">
+										<Button
+											type="button"
+											variant="ghost"
+											size="sm"
+											onClick={(e) => {
+												e.stopPropagation();
+												setIsCreating(false);
+												setNewName("");
+											}}
+											className="text-(--app-text-muted) hover:text-(--app-text)"
+										>
+											Cancel
+										</Button>
+										<Button
+											type="submit"
+											size="sm"
+											disabled={createWorkspace.isPending || !newName.trim()}
+											className="bg-cyan-600 hover:bg-cyan-700 text-white"
+										>
+											Create
+										</Button>
+									</div>
+								</form>
+							) : (
+								<>
+									<Plus size={24} className="text-cyan-400 mb-2" />
+									<span className="text-sm font-medium text-(--app-text)">
+										Create New Workspace
+									</span>
+								</>
+							)}
+						</motion.div>
+					)}
+
 					{workspaces.map((ws, index) => (
 						<motion.div
 							key={ws.id}
