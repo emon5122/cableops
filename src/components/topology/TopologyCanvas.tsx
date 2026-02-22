@@ -2,35 +2,35 @@ import DeviceContextMenu from "@/components/topology/DeviceContextMenu";
 import DeviceIcon from "@/components/topology/DeviceIcon";
 import PortContextMenu from "@/components/topology/PortContextMenu";
 import {
-    type AnnotationRow,
-    type ConnectionRow,
-    DEVICE_CAPABILITIES,
-    DEVICE_NODE_WIDTH,
-    DEVICE_TYPE_LABELS,
-    type DeviceRow,
-    type DeviceType,
-    discoverAllSegments,
-    type DragState,
-    getDeviceNodeHeight,
-    getPortDisplayColor,
-    getPortPosition,
-    INFO_STRIP_HEIGHT,
-    type InterfaceRow,
-    isPortConnected,
-    luminance,
-    PORT_SIZE,
-    type PortSelection,
-    sameSubnet,
+	type AnnotationRow,
+	type ConnectionRow,
+	DEVICE_CAPABILITIES,
+	DEVICE_NODE_WIDTH,
+	DEVICE_TYPE_LABELS,
+	type DeviceRow,
+	type DeviceType,
+	discoverAllSegments,
+	type DragState,
+	getDeviceNodeHeight,
+	getPortDisplayColor,
+	getPortPosition,
+	INFO_STRIP_HEIGHT,
+	type InterfaceRow,
+	isPortConnected,
+	luminance,
+	PORT_SIZE,
+	type PortSelection,
+	sameSubnet,
 } from "@/lib/topology-types";
 import { motion } from "framer-motion";
 import { toPng } from "html-to-image";
 import {
-    Download,
-    Maximize,
-    Minimize,
-    Minus,
-    Plus,
-    RotateCcw,
+	Download,
+	Maximize,
+	Minimize,
+	Minus,
+	Plus,
+	RotateCcw,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -1154,7 +1154,8 @@ export default function TopologyCanvas({
 						{/* Label */}
 						{isEditing ? (
 							<input
-								className="absolute top-1 left-1 bg-black/80 text-white text-[11px] px-1.5 py-0.5 rounded border border-white/20 outline-none"
+								autoFocus
+								className="absolute top-1 left-1 bg-black/80 text-white text-[11px] px-1.5 py-0.5 rounded border border-white/20 outline-none z-50"
 								value={annLabelValue}
 								onChange={(e) => setAnnLabelValue(e.target.value)}
 								onBlur={() => {
@@ -1170,6 +1171,7 @@ export default function TopologyCanvas({
 									}
 									if (e.key === "Escape") setEditingAnnLabel(null);
 								}}
+								onMouseDown={(e) => e.stopPropagation()}
 								onClick={(e) => e.stopPropagation()}
 							/>
 						) : (
@@ -1178,6 +1180,10 @@ export default function TopologyCanvas({
 									className="absolute top-1 left-2 text-[11px] font-semibold select-none cursor-text hover:underline"
 									style={{ color: ann.color }}
 									title="Double-click to edit label"
+									onMouseDown={(e) => {
+										// Prevent parent annotation from starting drag
+										e.stopPropagation();
+									}}
 									onDoubleClick={(e) => {
 										e.stopPropagation();
 										setEditingAnnLabel(ann.id);
