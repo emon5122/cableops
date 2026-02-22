@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.0](https://github.com/emon5122/cableops/compare/v1.1.2...v1.2.0) (2026-02-22)
+
+
+### Features
+
+* add new device types and icons; enhance PDF reporting ([355f469](https://github.com/emon5122/cableops/commit/355f46972e7ad23e7c6e3d820deb92f20f56a9c4))
+
+
+### Bug Fixes
+
+* enhance annotation label editing experience in TopologyCanvas ([fd819b3](https://github.com/emon5122/cableops/commit/fd819b34b9640e947957b96ef42d6ddec209fe83))
+
 ## [1.1.2](https://github.com/emon5122/cableops/compare/v1.1.1...v1.1.2) (2026-02-22)
 
 
