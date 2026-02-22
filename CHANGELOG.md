@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/emon5122/cableops/compare/v1.1.1...v1.1.2) (2026-02-22)
+
+
+### Bug Fixes
+
+* implement create workspace functionality with improved UI in Dashboard ([de51dd4](https://github.com/emon5122/cableops/commit/de51dd4ee97ac2bdf201860c3b07b15bb0374333))
+
 ## [1.1.1](https://github.com/emon5122/cableops/compare/v1.1.0...v1.1.1) (2026-02-21)
 
 
