@@ -2,35 +2,35 @@ import DeviceContextMenu from "@/components/topology/DeviceContextMenu";
 import DeviceIcon from "@/components/topology/DeviceIcon";
 import PortContextMenu from "@/components/topology/PortContextMenu";
 import {
-	type AnnotationRow,
-	type ConnectionRow,
-	DEVICE_CAPABILITIES,
-	DEVICE_NODE_WIDTH,
-	DEVICE_TYPE_LABELS,
-	type DeviceRow,
-	type DeviceType,
-	discoverAllSegments,
-	type DragState,
-	getDeviceNodeHeight,
-	getPortDisplayColor,
-	getPortPosition,
-	INFO_STRIP_HEIGHT,
-	type InterfaceRow,
-	isPortConnected,
-	luminance,
-	PORT_SIZE,
-	type PortSelection,
-	sameSubnet,
+    type AnnotationRow,
+    type ConnectionRow,
+    DEVICE_CAPABILITIES,
+    DEVICE_NODE_WIDTH,
+    DEVICE_TYPE_LABELS,
+    type DeviceRow,
+    type DeviceType,
+    discoverAllSegments,
+    type DragState,
+    getDeviceNodeHeight,
+    getPortDisplayColor,
+    getPortPosition,
+    INFO_STRIP_HEIGHT,
+    type InterfaceRow,
+    isPortConnected,
+    luminance,
+    PORT_SIZE,
+    type PortSelection,
+    sameSubnet,
 } from "@/lib/topology-types";
 import { motion } from "framer-motion";
 import { toPng } from "html-to-image";
 import {
-	Download,
-	Maximize,
-	Minimize,
-	Minus,
-	Plus,
-	RotateCcw,
+    Download,
+    Maximize,
+    Minimize,
+    Minus,
+    Plus,
+    RotateCcw,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -564,9 +564,15 @@ export default function TopologyCanvas({
 	} | null>(null);
 
 	const handleCanvasContextMenu = useCallback((e: React.MouseEvent) => {
-		/* Only show when right-clicking the canvas background */
-		if (e.target !== containerRef.current && e.target !== e.currentTarget)
-			return;
+		/* Show when right-clicking the canvas background, inner canvas, or SVG layer */
+		const target = e.target as HTMLElement;
+		const isCanvasBg =
+			target === containerRef.current ||
+			target === e.currentTarget ||
+			target === canvasInnerRef.current ||
+			target.tagName === "svg" ||
+			target.closest?.("[data-canvas-bg]") != null;
+		if (!isCanvasBg) return;
 		e.preventDefault();
 		const rect = containerRef.current?.getBoundingClientRect();
 		if (!rect) return;
@@ -1084,6 +1090,7 @@ export default function TopologyCanvas({
 			<div
 				ref={canvasInnerRef}
 				className="relative"
+				data-canvas-bg
 				style={{
 					transformOrigin: "0 0",
 					transform: `scale(${zoom})`,
@@ -1168,8 +1175,14 @@ export default function TopologyCanvas({
 						) : (
 							ann.label && (
 								<span
-									className="absolute top-1 left-2 text-[11px] font-semibold select-none pointer-events-none"
+									className="absolute top-1 left-2 text-[11px] font-semibold select-none cursor-text hover:underline"
 									style={{ color: ann.color }}
+									title="Double-click to edit label"
+									onDoubleClick={(e) => {
+										e.stopPropagation();
+										setEditingAnnLabel(ann.id);
+										setAnnLabelValue(ann.label ?? "");
+									}}
 								>
 									{ann.label}
 								</span>
@@ -1587,6 +1600,10 @@ export default function TopologyCanvas({
 				}}
 			>
 				<defs>
+					{/* Drop shadow filter for flow particles — ensures visibility on both light and dark backgrounds */}
+					<filter id="particle-glow" x="-50%" y="-50%" width="200%" height="200%">
+						<feDropShadow dx="0" dy="0" stdDeviation="1.5" floodColor="#000" floodOpacity="0.4" />
+					</filter>
 					{connections.map((conn) => {
 						const deviceA = devices.find((d) => d.id === conn.deviceAId);
 						const deviceB = devices.find((d) => d.id === conn.deviceBId);
@@ -1682,7 +1699,7 @@ export default function TopologyCanvas({
 								stroke={`url(#wire-grad-${conn.id})`}
 								strokeWidth={isWireSel ? 8 : 5}
 								fill="none"
-								opacity={isWireSel ? 0.35 : isInvalid ? 0.07 : 0.15}
+								opacity={isWireSel ? 0.45 : isInvalid ? 0.12 : 0.3}
 								strokeLinecap="round"
 								strokeDasharray={isWifi ? "8 6" : undefined}
 								style={{ pointerEvents: "none" }}
@@ -1690,10 +1707,10 @@ export default function TopologyCanvas({
 							{/* Main wire */}
 							<path
 								d={path}
-								stroke={isWireSel ? "#fff" : `url(#wire-grad-${conn.id})`}
+								stroke={isWireSel ? "var(--app-text, #fff)" : `url(#wire-grad-${conn.id})`}
 								strokeWidth={isWireSel ? 3 : 2.5}
 								fill="none"
-								opacity={isInvalid ? 0.35 : 0.85}
+								opacity={isInvalid ? 0.4 : 0.92}
 								strokeLinecap="round"
 								strokeDasharray={isWifi ? "8 6" : undefined}
 								style={{ pointerEvents: "none" }}
@@ -1772,14 +1789,14 @@ export default function TopologyCanvas({
 							)}
 							{isFlowActive && !isWifi && (
 								<>
-									<circle r="2.1" fill="#22d3ee" opacity="0.9">
+									<circle r="3" fill="#0891b2" opacity="0.95" filter="url(#particle-glow)">
 										<animateMotion
 											dur="2.2s"
 											repeatCount="indefinite"
 											path={path}
 										/>
 									</circle>
-									<circle r="1.8" fill="#a78bfa" opacity="0.75">
+									<circle r="2.5" fill="#7c3aed" opacity="0.9" filter="url(#particle-glow)">
 										<animateMotion
 											dur="2.6s"
 											repeatCount="indefinite"
@@ -1793,14 +1810,14 @@ export default function TopologyCanvas({
 							)}
 							{isFlowActive && isWifi && (
 								<>
-									<circle r="2.3" fill="#38bdf8" opacity="0.95">
+									<circle r="3.2" fill="#0284c7" opacity="0.95" filter="url(#particle-glow)">
 										<animateMotion
 											dur="1.9s"
 											repeatCount="indefinite"
 											path={path}
 										/>
 									</circle>
-									<circle r="2.0" fill="#22d3ee" opacity="0.82">
+									<circle r="2.7" fill="#0891b2" opacity="0.9" filter="url(#particle-glow)">
 										<animateMotion
 											dur="2.3s"
 											repeatCount="indefinite"
@@ -1822,14 +1839,15 @@ export default function TopologyCanvas({
 										rx={5}
 										width={116}
 										height={16}
-										fill="rgba(15, 23, 42, 0.72)"
-										stroke="rgba(148, 163, 184, 0.25)"
+										fill="var(--app-surface, rgba(15, 23, 42, 0.72))"
+										stroke="var(--app-border, rgba(148, 163, 184, 0.25))"
 										strokeWidth={1}
+										opacity={0.92}
 									/>
 									<text
 										textAnchor="middle"
 										y={3}
-										fill="#e2e8f0"
+										fill="var(--app-text, #e2e8f0)"
 										fontSize={8.8}
 										fontWeight={600}
 										style={{ pointerEvents: "none", userSelect: "none" }}

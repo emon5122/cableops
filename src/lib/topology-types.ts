@@ -26,6 +26,10 @@ export const DEVICE_TYPES = [
 	"modem",
 	"laptop",
 	"tablet",
+	"pa-speaker",
+	"pa-server",
+	"modality",
+	"lab-instrument",
 ] as const;
 
 export type DeviceType = (typeof DEVICE_TYPES)[number];
@@ -49,6 +53,10 @@ export const DEVICE_TYPE_LABELS: Record<DeviceType, string> = {
 	modem: "Modem",
 	laptop: "Laptop",
 	tablet: "Tablet",
+	"pa-speaker": "PA Speaker",
+	"pa-server": "PA Server",
+	modality: "Modality",
+	"lab-instrument": "Lab Instrument",
 };
 
 export const DEVICE_TYPE_DEFAULT_PORTS: Record<DeviceType, number> = {
@@ -70,6 +78,10 @@ export const DEVICE_TYPE_DEFAULT_PORTS: Record<DeviceType, number> = {
 	modem: 2,
 	laptop: 2,
 	tablet: 0,
+	"pa-speaker": 1,
+	"pa-server": 4,
+	modality: 1,
+	"lab-instrument": 1,
 };
 
 /* ── Network behaviour capabilities per device type ── */
@@ -344,6 +356,58 @@ export const DEVICE_CAPABILITIES: Record<DeviceType, DeviceCapabilities> = {
 		wifiHost: false,
 		wifiClient: true,
 	},
+	"pa-speaker": {
+		layer: "endpoint",
+		perPortIp: true,
+		managementIp: false,
+		vlanSupport: false,
+		natCapable: false,
+		dhcpCapable: false,
+		macPerPort: true,
+		canBeGateway: false,
+		portModeSupport: false,
+		wifiHost: false,
+		wifiClient: false,
+	},
+	"pa-server": {
+		layer: "endpoint",
+		perPortIp: true,
+		managementIp: false,
+		vlanSupport: false,
+		natCapable: false,
+		dhcpCapable: false,
+		macPerPort: true,
+		canBeGateway: false,
+		portModeSupport: false,
+		wifiHost: false,
+		wifiClient: false,
+	},
+	modality: {
+		layer: "endpoint",
+		perPortIp: true,
+		managementIp: false,
+		vlanSupport: false,
+		natCapable: false,
+		dhcpCapable: false,
+		macPerPort: true,
+		canBeGateway: false,
+		portModeSupport: false,
+		wifiHost: false,
+		wifiClient: false,
+	},
+	"lab-instrument": {
+		layer: "endpoint",
+		perPortIp: true,
+		managementIp: false,
+		vlanSupport: false,
+		natCapable: false,
+		dhcpCapable: false,
+		macPerPort: true,
+		canBeGateway: false,
+		portModeSupport: false,
+		wifiHost: false,
+		wifiClient: false,
+	},
 };
 
 /** Get the capabilities for a device type string */
@@ -366,12 +430,12 @@ export type PortRole = (typeof PORT_ROLES)[number];
 /* ── Data models (inferred from Drizzle schema) ── */
 
 import type {
-	annotations,
-	connections,
-	devices,
-	interfaces,
-	routes,
-	workspaces,
+    annotations,
+    connections,
+    devices,
+    interfaces,
+    routes,
+    workspaces,
 } from "@/db/schema";
 import type { InferSelectModel } from "drizzle-orm";
 

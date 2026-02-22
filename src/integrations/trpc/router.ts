@@ -1,11 +1,11 @@
 import { db } from "@/db";
 import * as schema from "@/db/schema";
 import {
-	type ConnectionRow,
-	type DeviceRow,
-	getNetworkSegment,
-	type InterfaceRow,
-	parseIp,
+    type ConnectionRow,
+    type DeviceRow,
+    getNetworkSegment,
+    type InterfaceRow,
+    parseIp,
 } from "@/lib/topology-types";
 import { workspaceSnapshotSchema } from "@/lib/workspace-snapshot-schema";
 import type { TRPCRouterRecord } from "@trpc/server";
@@ -545,21 +545,24 @@ const connectionsRouter = {
 				throw new Error(`Port ${input.portB} does not exist on device B`);
 			}
 
-			/* A port can only participate in one connection */
+			/* A port can only participate in one connection (except port 0 — virtual WiFi) */
 			const existing = await db
 				.select()
 				.from(schema.connections)
 				.where(eq(schema.connections.workspaceId, input.workspaceId));
 			for (const conn of existing) {
+				/* Port 0 is the virtual WiFi interface — multiple WiFi clients can share it */
 				if (
-					(conn.deviceAId === input.deviceAId && conn.portA === input.portA) ||
-					(conn.deviceBId === input.deviceAId && conn.portB === input.portA)
+					input.portA !== 0 &&
+					((conn.deviceAId === input.deviceAId && conn.portA === input.portA) ||
+					(conn.deviceBId === input.deviceAId && conn.portB === input.portA))
 				) {
 					throw new Error(`Port ${input.portA} on device A is already connected`);
 				}
 				if (
-					(conn.deviceAId === input.deviceBId && conn.portA === input.portB) ||
-					(conn.deviceBId === input.deviceBId && conn.portB === input.portB)
+					input.portB !== 0 &&
+					((conn.deviceAId === input.deviceBId && conn.portA === input.portB) ||
+					(conn.deviceBId === input.deviceBId && conn.portB === input.portB))
 				) {
 					throw new Error(`Port ${input.portB} on device B is already connected`);
 				}

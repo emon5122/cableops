@@ -1,19 +1,20 @@
 import type {
-	ConnectionRow,
-	DeviceRow,
-	DeviceType,
-	InterfaceRow,
+    ConnectionRow,
+    DeviceRow,
+    DeviceType,
+    InterfaceRow,
 } from "@/lib/topology-types";
 import { DEVICE_TYPE_LABELS, negotiatedSpeed } from "@/lib/topology-types";
 import {
-	ArrowLeftRight,
-	Cable,
-	Layers,
-	Monitor,
-	Trash2,
-	Zap,
+    ArrowLeftRight,
+    Cable,
+    Download,
+    Layers,
+    Monitor,
+    Trash2,
+    Zap,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 
 interface ConnectionsTableProps {
 	connections: ConnectionRow[];
@@ -92,6 +93,77 @@ export default function ConnectionsTable({
 		);
 	}
 
+	const handleDownloadPdf = useCallback(async () => {
+		const { default: jsPDF } = await import("jspdf");
+		const { default: autoTable } = await import("jspdf-autotable");
+
+		const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+		const pageW = doc.internal.pageSize.getWidth();
+
+		/* Title */
+		doc.setFontSize(16);
+		doc.setFont("helvetica", "bold");
+		doc.text("Network Links Report", pageW / 2, 14, { align: "center" });
+
+		/* Stats summary */
+		doc.setFontSize(9);
+		doc.setFont("helvetica", "normal");
+		doc.text(
+			`Devices: ${stats.totalDevices}  |  Links: ${stats.totalConnections}  |  Port Utilization: ${stats.utilPct}% (${stats.usedPorts}/${stats.totalPorts})  |  VLANs: ${stats.vlanCount}`,
+			pageW / 2,
+			21,
+			{ align: "center" },
+		);
+
+		/* Table data */
+		const rows = filtered.map((conn, idx) => {
+			const dA = getDevice(conn.deviceAId);
+			const dB = getDevice(conn.deviceBId);
+			const pcA = getPortConfig(conn.deviceAId, conn.portA);
+			const pcB = getPortConfig(conn.deviceBId, conn.portB);
+			const spd = negotiatedSpeed(pcA?.speed, pcB?.speed) ?? conn.speed ?? "—";
+			return [
+				String(idx + 1),
+				`${dA?.name ?? "Unknown"} (${dA ? (DEVICE_TYPE_LABELS[dA.deviceType as DeviceType] ?? dA.deviceType) : ""})`,
+				String(conn.portA),
+				pcA?.ipAddress ?? "",
+				`${dB?.name ?? "Unknown"} (${dB ? (DEVICE_TYPE_LABELS[dB.deviceType as DeviceType] ?? dB.deviceType) : ""})`,
+				String(conn.portB),
+				pcB?.ipAddress ?? "",
+				spd,
+				conn.connectionType ?? "wired",
+			];
+		});
+
+		autoTable(doc, {
+			startY: 25,
+			head: [["#", "Device A", "Port A", "IP A", "Device B", "Port B", "IP B", "Speed", "Type"]],
+			body: rows,
+			theme: "grid",
+			headStyles: { fillColor: [30, 41, 59], textColor: 255, fontSize: 8, fontStyle: "bold" },
+			bodyStyles: { fontSize: 7.5 },
+			alternateRowStyles: { fillColor: [241, 245, 249] },
+			margin: { left: 10, right: 10 },
+			styles: { cellPadding: 2, overflow: "linebreak" },
+		});
+
+		/* Footer with timestamp */
+		const pageCount = doc.getNumberOfPages();
+		for (let i = 1; i <= pageCount; i++) {
+			doc.setPage(i);
+			doc.setFontSize(7);
+			doc.setTextColor(150);
+			doc.text(
+				`Generated ${new Date().toLocaleString()} — CableOps`,
+				pageW / 2,
+				doc.internal.pageSize.getHeight() - 6,
+				{ align: "center" },
+			);
+		}
+
+		doc.save("network-links-report.pdf");
+	}, [filtered, stats, getDevice, getPortConfig]);
+
 	return (
 		<div className="overflow-x-auto">
 			{/* Stats cards */}
@@ -145,6 +217,18 @@ export default function ConnectionsTable({
 						)}
 					</div>
 				))}
+			</div>
+			{/* PDF download button */}
+			<div className="flex justify-end px-3 py-2 border-b border-(--app-border)">
+				<button
+					type="button"
+					className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-(--app-surface) border border-(--app-border) text-(--app-text-muted) hover:text-(--app-text) hover:bg-(--app-surface-hover) transition-colors"
+					onClick={handleDownloadPdf}
+					title="Download links report as PDF"
+				>
+					<Download size={13} />
+					Download PDF
+				</button>
 			</div>
 			<table className="w-full text-xs lg:text-sm border-collapse min-w-160">
 				<thead>

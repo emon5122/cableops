@@ -224,6 +224,59 @@ export default function DeviceIcon({
 				</svg>
 			);
 
+		case "pa-speaker":
+			return (
+				<svg {...props}>
+					<rect x="6" y="3" width="12" height="18" rx="2" />
+					<circle cx="12" cy="15" r="3.5" />
+					<circle cx="12" cy="15" r="1.2" fill={color} stroke="none" />
+					<circle cx="12" cy="7" r="1.8" />
+					<path d="M9 7h6" />
+				</svg>
+			);
+
+		case "pa-server":
+			return (
+				<svg {...props}>
+					<rect x="4" y="2" width="16" height="20" rx="2" />
+					<rect x="7" y="5" width="10" height="4" rx="0.5" />
+					<circle cx="15" cy="7" r="0.8" fill={color} stroke="none" />
+					<rect x="7" y="11" width="10" height="4" rx="0.5" />
+					<circle cx="15" cy="13" r="0.8" fill={color} stroke="none" />
+					<path d="M9 18h6" />
+					<path d="M8 17v2" />
+					<path d="M16 17v2" />
+				</svg>
+			);
+
+		case "modality":
+			return (
+				<svg {...props}>
+					<circle cx="12" cy="10" r="7" />
+					<circle cx="12" cy="10" r="3" />
+					<path d="M12 3v-1" />
+					<path d="M12 18v4" />
+					<path d="M9 21h6" />
+					<path d="M5 10H3" />
+					<path d="M21 10h-2" />
+					<line x1="6.5" y1="4.5" x2="8" y2="6" />
+					<line x1="17.5" y1="4.5" x2="16" y2="6" />
+				</svg>
+			);
+
+		case "lab-instrument":
+			return (
+				<svg {...props}>
+					<path d="M9 3h6" />
+					<path d="M10 3v5l-4 9a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1l-4-9V3" />
+					<path d="M7.5 14h9" />
+					<circle cx="10" cy="16" r="0.7" fill={color} stroke="none" />
+					<circle cx="13" cy="15.5" r="0.7" fill={color} stroke="none" />
+					<path d="M12 19v2" />
+					<path d="M9 21h6" />
+				</svg>
+			);
+
 		default:
 			return (
 				<svg {...props}>

@@ -1,18 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-	type ConnectionRow,
-	DEVICE_CAPABILITIES,
-	type DeviceRow,
-	type DeviceType,
-	type InterfaceRow,
-	PORT_MODES,
-	PORT_ROLES,
-	type PortMode,
-	type PortRole,
-	SPEED_OPTIONS,
-	VLAN_PRESETS,
-	validatePortIp,
+    type ConnectionRow,
+    DEVICE_CAPABILITIES,
+    type DeviceRow,
+    type DeviceType,
+    type InterfaceRow,
+    PORT_MODES,
+    PORT_ROLES,
+    type PortMode,
+    type PortRole,
+    SPEED_OPTIONS,
+    VLAN_PRESETS,
+    validatePortIp,
 } from "@/lib/topology-types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface PortContextMenuProps {
 	x: number;
@@ -549,8 +549,8 @@ export default function PortContextMenu({
 							<div className="border-t border-(--app-border-light) my-1" />
 						)}
 
-						{/* DHCP Server — for canBeGateway + dhcpCapable (routers, firewalls) */}
-						{caps.dhcpCapable && caps.canBeGateway && (
+						{/* DHCP Server — for any dhcpCapable device (routers, servers, etc.) */}
+						{caps.dhcpCapable && (
 							<button
 								type="button"
 								className="w-full px-3 py-1.5 text-left text-(--app-text) hover:bg-(--app-surface-hover) flex items-center justify-between"
