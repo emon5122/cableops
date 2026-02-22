@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/emon5122/cableops/compare/v1.2.0...v1.3.0) (2026-02-22)
+
+
+### Features
+
+* add workspace_members table and update workspaces schema ([4139680](https://github.com/emon5122/cableops/commit/4139680e1e764a909ca5e9a9be6f71e08044bc82))
+
 ## [1.2.0](https://github.com/emon5122/cableops/compare/v1.1.2...v1.2.0) (2026-02-22)
 
 
