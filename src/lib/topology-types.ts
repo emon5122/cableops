@@ -552,7 +552,7 @@ export function getDeviceNodeHeight(portCount: number, hasWifi = false): number 
 	/* WiFi-only device (portCount === 0): just header + info strip + WiFi button area */
 	if (portCount <= 0)
 		return (
-			DEVICE_NODE_HEADER_HEIGHT + INFO_STRIP_HEIGHT + 36
+			DEVICE_NODE_HEADER_HEIGHT + INFO_STRIP_HEIGHT + 48
 		); /* WiFi-only indicator space */
 	const portsPerRow = Math.min(PORTS_PER_ROW, Math.max(1, portCount));
 	const rows = Math.ceil(portCount / portsPerRow);

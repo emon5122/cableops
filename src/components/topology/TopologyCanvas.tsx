@@ -38,6 +38,18 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+/** Parse speed strings like "1 Gbit", "100 Mbit" → megabits */
+function parseSpeedMbit(s: string): number | null {
+	const m = s.match(/([\d.]+)\s*(Gbit|Mbit|Kbit)/i);
+	if (!m) return null;
+	const val = Number.parseFloat(m[1]);
+	const unit = m[2].toLowerCase();
+	if (unit === "gbit") return val * 1000;
+	if (unit === "mbit") return val;
+	if (unit === "kbit") return val / 1000;
+	return null;
+}
+
 interface ContextMenuState {
 	deviceId: string;
 	portNumber: number;
@@ -650,73 +662,51 @@ export default function TopologyCanvas({
 	 * Smart bezier wire routing.
 	 *
 	 * Strategy: use cubic bezier curves that naturally separate wires.
-	 * - Control points push the curve AWAY from the midline between devices
-	 * - Each wire gets a unique offset (idx) so parallel wires spread out
+	 * - Single wire between a pair: nearly straight with a slight bow
+	 * - Multiple wires between the SAME pair: fan out with perpendicular offsets
 	 * - Short connections use tighter curves, long ones use broader arcs
-	 * - Wires between side-by-side devices curve downward
-	 * - Wires between stacked devices curve sideways
+	 * - Control points shift perpendicular to the direct line so wires don't overlap
 	 */
 	const buildWirePath = useCallback(
 		(
 			from: { x: number; y: number },
 			to: { x: number; y: number },
-			idx: number,
-			_total: number,
+			pairIdx: number,
+			pairTotal: number,
 		): string => {
 			const dx = to.x - from.x;
 			const dy = to.y - from.y;
 			const dist = Math.sqrt(dx * dx + dy * dy);
 
-			/* Spread multiplier per wire index to prevent overlap */
-			const spread = (idx - _total / 2) * 18;
-
 			if (dist < 10) {
 				/* Extremely close ports — simple vertical drop + loop */
-				return `M ${from.x} ${from.y} C ${from.x} ${from.y + 40 + Math.abs(spread)}, ${to.x} ${to.y + 40 + Math.abs(spread)}, ${to.x} ${to.y}`;
+				const loop = 30 + pairIdx * 12;
+				return `M ${from.x} ${from.y} C ${from.x} ${from.y + loop}, ${to.x} ${to.y + loop}, ${to.x} ${to.y}`;
 			}
 
-			/* Base curvature proportional to distance */
-			const curvature = Math.max(50, Math.min(dist * 0.35, 200));
+			/* Perpendicular unit vector to the from→to line */
+			const perpX = -dy / dist;
+			const perpY = dx / dist;
 
-			/* Determine predominant direction */
-			const absDx = Math.abs(dx);
-			const absDy = Math.abs(dy);
+			/* Center-balanced offset: for N wires, spread them symmetrically.
+			   e.g. 1 wire → 0, 2 wires → -0.5/+0.5, 3 → -1/0/+1 */
+			const offset = (pairIdx - (pairTotal - 1) / 2) * 22;
 
-			if (absDx > absDy * 1.5) {
-				/* Predominantly horizontal — curve downward */
-				const bowY = curvature + Math.abs(spread);
-				return [
-					`M ${from.x} ${from.y}`,
-					`C ${from.x} ${from.y + bowY},`,
-					`${to.x} ${to.y + bowY},`,
-					`${to.x} ${to.y}`,
-				].join(" ");
-			}
+			/* Base curvature: proportional to distance but bounded.
+			   Single wire gets a subtle bow; multiple get more for separation. */
+			const baseBow = pairTotal <= 1
+				? Math.max(12, Math.min(dist * 0.08, 40))
+				: Math.max(30, Math.min(dist * 0.18, 120));
 
-			if (absDy > absDx * 1.5) {
-				/* Predominantly vertical — curve sideways */
-				const bowX = (curvature + Math.abs(spread)) * (dx >= 0 ? 1 : -1);
-				return [
-					`M ${from.x} ${from.y}`,
-					`C ${from.x + bowX} ${from.y},`,
-					`${to.x + bowX} ${to.y},`,
-					`${to.x} ${to.y}`,
-				].join(" ");
-			}
+			const bowAmount = baseBow + Math.abs(offset);
+			const bowDir = offset >= 0 ? 1 : -1;
 
-			/* Diagonal — S-curve routing */
-			const midX = (from.x + to.x) / 2;
-			const midY = (from.y + to.y) / 2;
-			/* Perpendicular offset */
-			const perpX = (-dy / dist) * (curvature * 0.4 + spread);
-			const perpY = (dx / dist) * (curvature * 0.4 + spread);
+			const midX = (from.x + to.x) / 2 + perpX * bowAmount * bowDir;
+			const midY = (from.y + to.y) / 2 + perpY * bowAmount * bowDir;
 
-			return [
-				`M ${from.x} ${from.y}`,
-				`C ${from.x} ${from.y + curvature * 0.5},`,
-				`${midX + perpX} ${midY + perpY},`,
-				`${to.x} ${to.y}`,
-			].join(" ");
+			/* Quadratic bezier through the offset midpoint → cleaner single-
+			   control-point curve that naturally fans apart */
+			return `M ${from.x} ${from.y} Q ${midX} ${midY}, ${to.x} ${to.y}`;
 		},
 		[],
 	);
@@ -1754,7 +1744,7 @@ export default function TopologyCanvas({
 									);
 
 									return (
-										<div className="p-2.5 flex items-center justify-center">
+										<div className="px-2.5 pt-1 pb-2 flex items-center justify-center">
 											<button
 												type="button"
 												className={`h-8 px-3 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 relative ${
@@ -1828,10 +1818,6 @@ export default function TopologyCanvas({
 				}}
 			>
 				<defs>
-					{/* Drop shadow filter for flow particles — ensures visibility on both light and dark backgrounds */}
-					<filter id="particle-glow" x="-50%" y="-50%" width="200%" height="200%">
-						<feDropShadow dx="0" dy="0" stdDeviation="1.5" floodColor="#000" floodOpacity="0.4" />
-					</filter>
 					{connections.map((conn) => {
 						const deviceA = devices.find((d) => d.id === conn.deviceAId);
 						const deviceB = devices.find((d) => d.id === conn.deviceBId);
@@ -1861,12 +1847,18 @@ export default function TopologyCanvas({
 					})}
 				</defs>
 
-				{connections.map((conn, idx) => {
+				{connections.map((conn) => {
 					const from = getAbsolutePortPos(conn.deviceAId, conn.portA);
 					const to = getAbsolutePortPos(conn.deviceBId, conn.portB);
 					if (!from || !to) return null;
 
-					const path = buildWirePath(from, to, idx, connections.length);
+					/* Per-pair indexing: only spread wires between the SAME device pair */
+					const pair = [conn.deviceAId, conn.deviceBId].sort().join("|");
+					const pairIds = connectionLookup.get(pair) ?? [conn.id];
+					const pairIdx = pairIds.indexOf(conn.id);
+					const pairTotal = pairIds.length;
+
+					const path = buildWirePath(from, to, pairIdx, pairTotal);
 					const isWireSel = selectedWire === conn.id;
 					const anchor = getPathAnchor(path);
 					const midX = anchor?.x ?? (from.x + to.x) / 2;
@@ -1907,6 +1899,17 @@ export default function TopologyCanvas({
 					const issueTag = connectionIssueById.get(conn.id) ?? null;
 					const isInvalid = !!issueTag;
 
+					/* ── Speed-aware particle durations ──
+					   Negotiated speed = min of both ends (or whichever is set).
+					   Maps to particle duration + size: faster = quicker, more visible. */
+					const speedStr = conn.speed ?? portAConfig?.speed ?? portBConfig?.speed ?? null;
+					const speedMbit = speedStr ? parseSpeedMbit(speedStr) : null;
+					const particleDur = speedMbit
+						? speedMbit >= 10000 ? 1.5 : speedMbit >= 1000 ? 2.5 : speedMbit >= 100 ? 4.0 : 6.0
+						: 3.5; // default when no speed set
+						const particleSize = speedMbit
+						? speedMbit >= 10000 ? 3.5 : speedMbit >= 1000 ? 3.0 : speedMbit >= 100 ? 2.5 : 2.0
+						: 2.8;
 					/* ── Reachability wire overlay ── */
 					const simWireReachable = reachability?.reachableConnections.has(conn.id);
 					const simWireNat = reachability?.natOnlyConnections.has(conn.id);
@@ -1942,22 +1945,22 @@ export default function TopologyCanvas({
 							<path
 								d={path}
 								stroke={simWireColor ?? `url(#wire-grad-${conn.id})`}
-								strokeWidth={isWireSel ? 8 : simWireActive ? 6 : 5}
+								strokeWidth={isWireSel ? 6 : simWireActive ? 4 : 3.5}
 								fill="none"
-								opacity={isWireSel ? 0.45 : simWireActive ? 0.5 : isInvalid ? 0.12 : 0.3}
+								opacity={isWireSel ? 0.4 : simWireActive ? 0.45 : isInvalid ? 0.08 : 0.2}
 								strokeLinecap="round"
-								strokeDasharray={isWifi ? "8 6" : undefined}
+								strokeDasharray={isWifi ? "6 5" : undefined}
 								style={{ pointerEvents: "none" }}
 							/>
 							{/* Main wire */}
 							<path
 								d={path}
 								stroke={simWireColor ?? (isWireSel ? "var(--app-text, #fff)" : `url(#wire-grad-${conn.id})`)}
-								strokeWidth={isWireSel ? 3 : 2.5}
+								strokeWidth={isWireSel ? 2.5 : 1.8}
 								fill="none"
-								opacity={simWireActive ? 0.95 : isInvalid ? 0.4 : 0.92}
+								opacity={simWireActive ? 0.95 : isInvalid ? 0.35 : 0.88}
 								strokeLinecap="round"
-								strokeDasharray={isWifi ? "8 6" : undefined}
+								strokeDasharray={isWifi ? "6 5" : undefined}
 								style={{ pointerEvents: "none" }}
 							/>
 							{/* WiFi indicator at midpoint */}
@@ -2032,47 +2035,18 @@ export default function TopologyCanvas({
 									</text>
 								</g>
 							)}
-							{isFlowActive && !isWifi && (
-								<>
-									<circle r="3" fill="#0891b2" opacity="0.95" filter="url(#particle-glow)">
-										<animateMotion
-											dur="2.2s"
-											repeatCount="indefinite"
-											path={path}
-										/>
-									</circle>
-									<circle r="2.5" fill="#7c3aed" opacity="0.9" filter="url(#particle-glow)">
-										<animateMotion
-											dur="2.6s"
-											repeatCount="indefinite"
-											path={path}
-											keyPoints="1;0"
-											keyTimes="0;1"
-											calcMode="linear"
-										/>
-									</circle>
-								</>
-							)}
-							{isFlowActive && isWifi && (
-								<>
-									<circle r="3.2" fill="#0284c7" opacity="0.95" filter="url(#particle-glow)">
-										<animateMotion
-											dur="1.9s"
-											repeatCount="indefinite"
-											path={path}
-										/>
-									</circle>
-									<circle r="2.7" fill="#0891b2" opacity="0.9" filter="url(#particle-glow)">
-										<animateMotion
-											dur="2.3s"
-											repeatCount="indefinite"
-											path={path}
-											keyPoints="1;0"
-											keyTimes="0;1"
-											calcMode="linear"
-										/>
-									</circle>
-								</>
+							{isFlowActive && (
+								<circle
+									r={particleSize}
+									fill={isWifi ? "#0284c7" : "#0891b2"}
+									opacity="0.9"
+								>
+									<animateMotion
+										dur={`${particleDur}s`}
+										repeatCount="indefinite"
+										path={path}
+									/>
+								</circle>
 							)}
 							{showWireMeta && (
 								<g
