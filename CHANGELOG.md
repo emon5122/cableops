@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/emon5122/cableops/compare/v1.4.0...v1.4.1) (2026-02-23)
+
+
+### Bug Fixes
+
+* improve state synchronization in context menus and add home-router bridging logic ([6150b55](https://github.com/emon5122/cableops/commit/6150b55bf69500ae7cc15dc940a39c5cbbcec343))
+
 ## [1.4.0](https://github.com/emon5122/cableops/compare/v1.3.0...v1.4.0) (2026-02-23)
 
 
