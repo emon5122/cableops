@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.2](https://github.com/emon5122/cableops/compare/v1.5.1...v1.5.2) (2026-02-23)
+
+
+### Bug Fixes
+
+* enhance wire routing and particle animations based on connection speeds ([a365041](https://github.com/emon5122/cableops/commit/a365041ea1164835f04f1d31e14cf2cc696b9596))
+
 ## [1.5.1](https://github.com/emon5122/cableops/compare/v1.5.0...v1.5.1) (2026-02-23)
 
 
