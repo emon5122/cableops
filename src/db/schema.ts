@@ -170,11 +170,16 @@ export const connections = pgTable(
 		workspaceIdx: index("connections_workspace_idx").on(table.workspaceId),
 		deviceAIdx: index("connections_device_a_idx").on(table.deviceAId),
 		deviceBIdx: index("connections_device_b_idx").on(table.deviceBId),
-		deviceAPortUnique: uniqueIndex("connections_device_a_port_uq").on(
+		/* Unique per physical port only (port 0 = WiFi allows multiple connections).
+		   The actual partial unique indexes are created in migration 0004.
+		   Drizzle doesn't support partial indexes in the table DSL, so we
+		   use plain indexes here for query planning while the DB-level
+		   constraint lives in the migration SQL. */
+		deviceAPortIdx: index("connections_device_a_port_idx").on(
 			table.deviceAId,
 			table.portA,
 		),
-		deviceBPortUnique: uniqueIndex("connections_device_b_port_uq").on(
+		deviceBPortIdx: index("connections_device_b_port_idx").on(
 			table.deviceBId,
 			table.portB,
 		),

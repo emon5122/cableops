@@ -29,6 +29,13 @@
       "when": 1771792330893,
       "tag": "0003_open_molten_man",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1771875614318,
+      "tag": "0004_redundant_sasquatch",
+      "breakpoints": true
     }
   ]
 }

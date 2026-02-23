@@ -548,7 +548,8 @@ export function getPortPosition(
 	};
 }
 
-export function getDeviceNodeHeight(portCount: number): number {
+export function getDeviceNodeHeight(portCount: number, hasWifi = false): number {
+	/* WiFi-only device (portCount === 0): just header + info strip + WiFi button area */
 	if (portCount <= 0)
 		return (
 			DEVICE_NODE_HEADER_HEIGHT + INFO_STRIP_HEIGHT + 36
@@ -556,8 +557,10 @@ export function getDeviceNodeHeight(portCount: number): number {
 	const portsPerRow = Math.min(PORTS_PER_ROW, Math.max(1, portCount));
 	const rows = Math.ceil(portCount / portsPerRow);
 	const spacing = PORT_SIZE + PORT_GAP;
+	/* Devices with physical ports AND WiFi (routers, APs, laptops) get an extra row for the WiFi P0 button */
+	const wifiRowHeight = hasWifi ? 36 : 0;
 	return (
-		DEVICE_NODE_HEADER_HEIGHT + INFO_STRIP_HEIGHT + 14 + rows * spacing + 14
+		DEVICE_NODE_HEADER_HEIGHT + INFO_STRIP_HEIGHT + 14 + rows * spacing + 14 + wifiRowHeight
 	);
 }
 
@@ -1886,10 +1889,27 @@ export function analyzeNetwork(
 			continue;
 		}
 
-		const hasCloudUplink = outSeg.ports.some((sp) => {
-			const d = devices.find((dd) => dd.id === sp.deviceId);
-			return d?.deviceType === "cloud";
-		});
+		/* For home-routers NAT operates at device level: the uplink port
+		   reaches cloud even though the LAN/WiFi ports are on a different
+		   bridged segment. Check ALL ports of the device for cloud access. */
+		let hasCloudUplink = false;
+		if (dev.deviceType === "router") {
+			for (const [key, seg] of portToSegment.entries()) {
+				if (!key.startsWith(`${dev.id}:`)) continue;
+				if (seg.ports.some((sp) => {
+					const d = devices.find((dd) => dd.id === sp.deviceId);
+					return d?.deviceType === "cloud";
+				})) {
+					hasCloudUplink = true;
+					break;
+				}
+			}
+		} else {
+			hasCloudUplink = outSeg.ports.some((sp) => {
+				const d = devices.find((dd) => dd.id === sp.deviceId);
+				return d?.deviceType === "cloud";
+			});
+		}
 		if (!hasCloudUplink) {
 			issues.push({
 				severity: "info",

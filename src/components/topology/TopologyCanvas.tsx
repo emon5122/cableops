@@ -135,6 +135,13 @@ export default function TopologyCanvas({
 	onUpdateAnnotation,
 	onDeleteAnnotation,
 }: TopologyCanvasProps) {
+	/* Helper: does a device with physical ports also need a WiFi P0 row? */
+	const deviceHasWifi = useCallback((device: DeviceRow): boolean => {
+		if (device.portCount <= 0) return false; // portCount=0 already shows WiFi-only UI
+		const caps = DEVICE_CAPABILITIES[device.deviceType as DeviceType];
+		return !!(caps && (caps.wifiHost || caps.wifiClient));
+	}, []);
+
 	const containerRef = useRef<HTMLDivElement>(null);
 	const [drag, setDrag] = useState<DragState>({
 		isDragging: false,
@@ -467,7 +474,7 @@ export default function TopologyCanvas({
 				for (const device of devices) {
 					const pos = getDevicePos(device);
 					const nodeW = DEVICE_NODE_WIDTH;
-					const nodeH = getDeviceNodeHeight(device.portCount);
+					const nodeH = getDeviceNodeHeight(device.portCount, deviceHasWifi(device));
 					// Check overlap
 					if (pos.x + nodeW > x1 && pos.x < x2 && pos.y + nodeH > y1 && pos.y < y2) {
 						selDevices.add(device.id);
@@ -626,7 +633,7 @@ export default function TopologyCanvas({
 			const pos = getDevicePos(device);
 			/* Port 0 = virtual WiFi interface → center of device node */
 			if (portNumber === 0) {
-				const nodeH = getDeviceNodeHeight(device.portCount);
+				const nodeH = getDeviceNodeHeight(device.portCount, deviceHasWifi(device));
 				return { x: pos.x + DEVICE_NODE_WIDTH / 2, y: pos.y + nodeH / 2 };
 			}
 			const portPos = getPortPosition(
@@ -1015,7 +1022,7 @@ export default function TopologyCanvas({
 		let maxY = 600;
 		for (const device of devices) {
 			const pos = getDevicePos(device);
-			const h = getDeviceNodeHeight(device.portCount);
+			const h = getDeviceNodeHeight(device.portCount, deviceHasWifi(device));
 			maxX = Math.max(maxX, pos.x + DEVICE_NODE_WIDTH + 200);
 			maxY = Math.max(maxY, pos.y + h + 200);
 		}
@@ -1354,7 +1361,7 @@ export default function TopologyCanvas({
 			{/* Device nodes — z-index 10 */}
 			{devices.map((device) => {
 				const pos = getDevicePos(device);
-				const nodeHeight = getDeviceNodeHeight(device.portCount);
+				const nodeHeight = getDeviceNodeHeight(device.portCount, deviceHasWifi(device));
 				const isSelected = selectedDeviceId === device.id;
 				const isMultiSelected = multiSelectedDevices.has(device.id);
 				const textColor = luminance(device.color) > 0.5 ? "#000" : "#fff";
@@ -1571,6 +1578,7 @@ export default function TopologyCanvas({
 
 							{/* Port grid */}
 							{device.portCount > 0 ? (
+								<>
 								<div className="p-2 flex flex-wrap gap-1 justify-center">
 									{Array.from({ length: device.portCount }, (_, i) => {
 										const pNum = i + 1;
@@ -1658,6 +1666,72 @@ export default function TopologyCanvas({
 										);
 									})}
 								</div>
+								{/* WiFi P0 button for devices that have physical ports AND wifi */}
+								{deviceHasWifi(device) && (() => {
+									const pNum = 0;
+									const wifiConnected = connections.some(
+										(c) =>
+											(c.deviceAId === device.id && c.portA === 0) ||
+											(c.deviceBId === device.id && c.portB === 0),
+									);
+									const isSel =
+										selectedPort?.deviceId === device.id &&
+										selectedPort.portNumber === pNum;
+									const pc = getPortConfig(device.id, pNum);
+									return (
+										<div className="px-2 pb-2 flex items-center justify-center">
+											<button
+												type="button"
+												className={`h-7 px-3 rounded-md text-[10px] font-semibold transition-all flex items-center gap-1.5 relative ${
+													isSel
+														? "ring-2 ring-white ring-offset-1 ring-offset-(--app-surface)"
+														: ""
+												}`}
+												style={{
+													backgroundColor: wifiConnected
+														? "#0ea5e9"
+														: "var(--app-port-empty)",
+													color: wifiConnected ? "#03131f" : "var(--app-text-dim)",
+													border: wifiConnected
+														? "1px solid #0284c7"
+														: "1px solid var(--app-port-border)",
+												}}
+												onClick={(e) => {
+													e.stopPropagation();
+													onPortClick(device.id, pNum);
+												}}
+												onContextMenu={(e) => {
+													e.preventDefault();
+													e.stopPropagation();
+													setContextMenu({
+														deviceId: device.id,
+														portNumber: pNum,
+														x: e.clientX,
+														y: e.clientY,
+													});
+												}}
+												title={`WiFi interface${pc?.ipAddress ? ` ${pc.ipAddress}` : ""}${pc?.ssid ? ` SSID ${pc.ssid}` : ""}`}
+											>
+												<svg
+													width="10"
+													height="10"
+													viewBox="0 0 24 24"
+													fill="none"
+													stroke="currentColor"
+													strokeWidth="2"
+													strokeLinecap="round"
+													strokeLinejoin="round"
+												>
+													<path d="M5 12.55a11 11 0 0 1 14.08 0" />
+													<path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+													<circle cx="12" cy="20" r="1" fill="currentColor" />
+												</svg>
+												<span>WiFi P0</span>
+											</button>
+										</div>
+									);
+								})()}
+								</>
 							) : (
 								(() => {
 									const pNum = 0;
