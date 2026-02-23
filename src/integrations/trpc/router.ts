@@ -1046,20 +1046,18 @@ const interfacesRouter = {
 			const effectiveDhcpEnd = input.dhcpRangeEnd ?? match?.dhcpRangeEnd ?? null;
 			const effectiveInterfaceIp = input.ipAddress ?? match?.ipAddress ?? null;
 
-			if (
-				effectiveDhcpEnabled ||
-				input.dhcpRangeStart !== undefined ||
-				input.dhcpRangeEnd !== undefined
-			) {
+			// Only validate DHCP ranges when ranges are actually provided.
+			// Enabling DHCP without ranges is allowed — user configures ranges next.
+			if (effectiveDhcpStart || effectiveDhcpEnd) {
 				if (effectiveDhcpEnabled) {
 					if (!effectiveDhcpStart || !effectiveDhcpEnd) {
 						throw new Error(
-							"DHCP enabled requires both start and end range addresses",
+							"DHCP range requires both start and end addresses",
 						);
 					}
 					if (!effectiveInterfaceIp) {
 						throw new Error(
-							"DHCP enabled requires an interface IP in CIDR format",
+							"DHCP requires an interface IP in CIDR format",
 						);
 					}
 

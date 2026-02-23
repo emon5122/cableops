@@ -68,11 +68,13 @@ export default function DeviceContextMenu({
 	const [mgmtGwValue, setMgmtGwValue] = useState(mgmtIface?.gateway ?? "");
 	const [showMgmtPanel, setShowMgmtPanel] = useState(false);
 
-	// Sync state when portConfigs updates (e.g. from collaborator changes)
+	// Only sync when the management interface record changes identity, not on every refetch
+	const mgmtIfaceId = mgmtIface?.id ?? null;
 	useEffect(() => {
 		setMgmtIpValue(mgmtIface?.ipAddress ?? "");
 		setMgmtGwValue(mgmtIface?.gateway ?? "");
-	}, [mgmtIface?.ipAddress, mgmtIface?.gateway]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [mgmtIfaceId]);
 
 	const saveMgmtIp = useCallback(() => {
 		onUpdatePortConfig({

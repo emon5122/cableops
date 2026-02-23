@@ -869,6 +869,48 @@ function isL2Transparent(layer: DeviceCapabilities["layer"]): boolean {
 	return layer === 1 || layer === 2;
 }
 
+/**
+ * Home-router bridging: regular "router" (not "managed-router") bridges all
+ * LAN/WiFi ports into a single L2 domain — only the uplink port is isolated.
+ * This models TP-Link, Netgear etc. where WiFi clients, LAN ports, and the
+ * router's own IP all share the same broadcast domain.
+ *
+ * Returns all port numbers on this device that should be treated as bridged
+ * with the given portNumber, or an empty array if no bridging applies.
+ */
+function getHomeRouterBridgedPorts(
+	device: DeviceRow,
+	portNumber: number,
+	portConfigs: InterfaceRow[],
+	connections: ConnectionRow[],
+): number[] {
+	if (device.deviceType !== "router") return [];
+
+	const thisPortConfig = getPortConfig(device.id, portNumber, portConfigs);
+	// Uplink ports are NOT bridged — they face the ISP/WAN
+	if (thisPortConfig?.portRole === "uplink") return [];
+
+	// Collect all ports that exist on this device (from connections + configs)
+	const allPorts = new Set<number>();
+	for (const c of connections) {
+		if (c.deviceAId === device.id) allPorts.add(c.portA);
+		if (c.deviceBId === device.id) allPorts.add(c.portB);
+	}
+	for (const pc of portConfigs) {
+		if (pc.deviceId === device.id) allPorts.add(pc.portNumber);
+	}
+
+	// Return all non-uplink ports except the one we're already on
+	const bridged: number[] = [];
+	for (const p of allPorts) {
+		if (p === portNumber) continue;
+		const pc = getPortConfig(device.id, p, portConfigs);
+		if (pc?.portRole === "uplink") continue;
+		bridged.push(p);
+	}
+	return bridged;
+}
+
 function getPortConfig(
 	deviceId: string,
 	portNumber: number,
@@ -1004,6 +1046,15 @@ export function getNetworkSegment(
 					}
 				}
 			}
+		}
+
+		// Home-router bridging: all non-uplink ports (LAN + WiFi) on a regular
+		// "router" are in the same broadcast domain. Enqueue bridged siblings
+		// so the segment walk discovers the router's gateway IP even when
+		// entering via WiFi (port 0) while the IP is on a LAN port.
+		const bridgedPorts = getHomeRouterBridgedPorts(dev, current.portNumber, portConfigs, connections);
+		for (const bp of bridgedPorts) {
+			tryEnqueue(queue, current.deviceId, bp, current.vlanId);
 		}
 
 		// Find ALL connections from this specific port (port 0 / WiFi can have multiple)

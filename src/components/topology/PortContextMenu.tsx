@@ -94,7 +94,9 @@ export default function PortContextMenu({
 	);
 	const [gatewayValue, setGatewayValue] = useState(portConfig?.gateway ?? "");
 
-	/* Sync local state when portConfig changes (e.g. live refetch, collaborator edit, DHCP auto-assign) */
+	/* Sync local state only when a DIFFERENT port config record is opened.
+	   Do NOT re-sync on every refetch — that overwrites in-progress user typing. */
+	const portConfigId = portConfig?.id ?? null;
 	useEffect(() => {
 		setAliasValue(portConfig?.alias ?? "");
 		setIpValue(portConfig?.ipAddress ?? "");
@@ -104,7 +106,8 @@ export default function PortContextMenu({
 		setSsidValue(portConfig?.ssid ?? "");
 		setWifiPassValue(portConfig?.wifiPassword ?? "");
 		setGatewayValue(portConfig?.gateway ?? "");
-	}, [portConfig]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [portConfigId]);
 
 	/* ── Device capabilities ── */
 	const caps =
@@ -260,10 +263,11 @@ export default function PortContextMenu({
 		portConfig?.reservedLabel ?? "Reserved",
 	);
 
-	// Sync reserved label value
+	// Sync reserved label value only on portConfig identity change
 	useEffect(() => {
 		setReservedLabelValue(portConfig?.reservedLabel ?? "Reserved");
-	}, [portConfig?.reservedLabel]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [portConfigId]);
 
 	const saveReservedLabel = useCallback(() => {
 		onUpdatePortConfig({

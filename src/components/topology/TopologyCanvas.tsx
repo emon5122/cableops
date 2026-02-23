@@ -2202,8 +2202,8 @@ export default function TopologyCanvas({
 						className="w-full text-left px-3 py-1.5 text-(--app-text-muted) hover:bg-(--app-border) hover:text-white flex items-center gap-2"
 						onClick={() => {
 							onAddAnnotation({
-								x: canvasMenu.canvasX,
-								y: canvasMenu.canvasY,
+								x: Math.round(canvasMenu.canvasX),
+								y: Math.round(canvasMenu.canvasY),
 								kind: "rect",
 								label: "Room",
 							});
@@ -2227,8 +2227,8 @@ export default function TopologyCanvas({
 						className="w-full text-left px-3 py-1.5 text-(--app-text-muted) hover:bg-(--app-border) hover:text-white flex items-center gap-2"
 						onClick={() => {
 							onAddAnnotation({
-								x: canvasMenu.canvasX,
-								y: canvasMenu.canvasY,
+								x: Math.round(canvasMenu.canvasX),
+								y: Math.round(canvasMenu.canvasY),
 								kind: "rect",
 								label: "Wall",
 							});
@@ -2253,8 +2253,8 @@ export default function TopologyCanvas({
 						className="w-full text-left px-3 py-1.5 text-(--app-text-muted) hover:bg-(--app-border) hover:text-white flex items-center gap-2"
 						onClick={() => {
 							onAddAnnotation({
-								x: canvasMenu.canvasX,
-								y: canvasMenu.canvasY,
+								x: Math.round(canvasMenu.canvasX),
+								y: Math.round(canvasMenu.canvasY),
 								kind: "label",
 							});
 							setCanvasMenu(null);
