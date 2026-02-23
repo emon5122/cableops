@@ -81,9 +81,19 @@ interface TopologyCanvasProps {
 		id: string,
 		fields: {
 			ipForwarding?: boolean;
+			maxSpeed?: string | null;
 		},
 	) => void;
 	onDeleteDevice: (id: string) => void;
+	onUpsertRoute?: (params: {
+		id?: string;
+		deviceId: string;
+		destination: string;
+		nextHop: string;
+		interfacePort?: number | null;
+		metric?: number;
+	}) => void;
+	onDeleteRoute?: (id: string) => void;
 	onAddAnnotation: (ann: {
 		x: number;
 		y: number;
@@ -119,6 +129,8 @@ export default function TopologyCanvas({
 	onDisconnect,
 	onUpdateDevice,
 	onDeleteDevice,
+	onUpsertRoute,
+	onDeleteRoute,
 	onAddAnnotation,
 	onUpdateAnnotation,
 	onDeleteAnnotation,
@@ -2159,10 +2171,13 @@ export default function TopologyCanvas({
 							y={deviceMenu.y}
 							device={dev}
 							portConfigs={portConfigs}
+							routes={routes.filter((r) => r.deviceId === dev.id)}
 							onClose={() => setDeviceMenu(null)}
 							onUpdateDevice={onUpdateDevice}
 							onUpdatePortConfig={onUpdatePortConfig}
 							onDeleteDevice={onDeleteDevice}
+							onUpsertRoute={onUpsertRoute}
+							onDeleteRoute={onDeleteRoute}
 							onSimulateReachability={(deviceId) => {
 								setSimulationFocusId(deviceId);
 								setDeviceMenu(null);

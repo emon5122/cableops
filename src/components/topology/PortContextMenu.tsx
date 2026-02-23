@@ -236,14 +236,42 @@ export default function PortContextMenu({
 	}, []);
 
 	const toggleReserved = useCallback(() => {
+		if (portConfig?.reserved) {
+			// Unreserve — clear everything
+			onUpdatePortConfig({
+				deviceId,
+				portNumber,
+				reserved: false,
+				reservedLabel: null,
+			});
+			onClose();
+		} else {
+			// Reserve — set default label, keep menu open so user can edit label
+			onUpdatePortConfig({
+				deviceId,
+				portNumber,
+				reserved: true,
+				reservedLabel: "Reserved",
+			});
+		}
+	}, [deviceId, portNumber, portConfig, onUpdatePortConfig, onClose]);
+
+	const [reservedLabelValue, setReservedLabelValue] = useState(
+		portConfig?.reservedLabel ?? "Reserved",
+	);
+
+	// Sync reserved label value
+	useEffect(() => {
+		setReservedLabelValue(portConfig?.reservedLabel ?? "Reserved");
+	}, [portConfig?.reservedLabel]);
+
+	const saveReservedLabel = useCallback(() => {
 		onUpdatePortConfig({
 			deviceId,
 			portNumber,
-			reserved: !portConfig?.reserved,
-			reservedLabel: !portConfig?.reserved ? "Reserved" : null,
+			reservedLabel: reservedLabelValue.trim() || "Reserved",
 		});
-		onClose();
-	}, [deviceId, portNumber, portConfig, onUpdatePortConfig, onClose]);
+	}, [deviceId, portNumber, reservedLabelValue, onUpdatePortConfig]);
 
 	const toggleDhcp = useCallback(() => {
 		onUpdatePortConfig({
@@ -668,6 +696,27 @@ export default function PortContextMenu({
 								<span className="text-[10px] text-amber-400">●</span>
 							)}
 						</button>
+						{portConfig?.reserved && (
+							<div className="px-3 py-1 flex gap-1 items-center">
+								<input
+									type="text"
+									value={reservedLabelValue}
+									onChange={(e) => setReservedLabelValue(e.target.value)}
+									placeholder="Label…"
+									className="flex-1 bg-(--app-input-bg) border border-(--app-border-light) rounded px-2 py-1 text-[11px] text-(--app-text) outline-none"
+									onKeyDown={(e) => {
+										if (e.key === "Enter") saveReservedLabel();
+									}}
+								/>
+								<button
+									type="button"
+									className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] rounded"
+									onClick={saveReservedLabel}
+								>
+									Set
+								</button>
+							</div>
+						)}
 
 						{/* Disconnect */}
 						{isConnected && connection && (

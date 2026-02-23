@@ -215,6 +215,12 @@ function WorkspacePage() {
 	const deleteAnnotation = useMutation(
 		trpc.annotations.delete.mutationOptions({ onSuccess: invalidateAll }),
 	);
+	const upsertRoute = useMutation(
+		trpc.routes.upsert.mutationOptions({ onSuccess: invalidateAll }),
+	);
+	const deleteRoute = useMutation(
+		trpc.routes.delete.mutationOptions({ onSuccess: invalidateAll }),
+	);
 	const updateWorkspace = useMutation(
 		trpc.workspaces.update.mutationOptions({
 			onSuccess: () => {
@@ -954,6 +960,7 @@ function WorkspacePage() {
 								connections={connections}
 								portConfigs={portConfigs}
 								annotations={annotations}
+								routes={routes}
 								selectedPort={selectedPort}
 								onPortClick={handlePortClick}
 								onDeviceMove={(id, x, y) => {
@@ -973,6 +980,11 @@ function WorkspacePage() {
 								updateDevice.mutate({ id, ...fields });
 							}}
 							onDeleteDevice={(id) => { if (!canEdit) return; deleteDevice.mutate({ id }); }}
+							onUpsertRoute={(params) => {
+								if (!canEdit) return;
+								upsertRoute.mutate(params);
+							}}
+							onDeleteRoute={(id) => { if (!canEdit) return; deleteRoute.mutate({ id }); }}
 							onAddAnnotation={(ann) => {
 								if (!canEdit) return;
 								createAnnotation.mutate({ workspaceId, ...ann });

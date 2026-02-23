@@ -3,6 +3,8 @@ import {
 	type DeviceRow,
 	type DeviceType,
 	type InterfaceRow,
+	type RouteRow,
+	SPEED_OPTIONS,
 } from "@/lib/topology-types";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -11,11 +13,13 @@ interface DeviceContextMenuProps {
 	y: number;
 	device: DeviceRow;
 	portConfigs: InterfaceRow[];
+	routes?: RouteRow[];
 	onClose: () => void;
 	onUpdateDevice: (
 		id: string,
 		fields: {
 			ipForwarding?: boolean;
+			maxSpeed?: string | null;
 		},
 	) => void;
 	onUpdatePortConfig: (config: {
@@ -25,6 +29,15 @@ interface DeviceContextMenuProps {
 		gateway?: string | null;
 	}) => void;
 	onDeleteDevice: (id: string) => void;
+	onUpsertRoute?: (params: {
+		id?: string;
+		deviceId: string;
+		destination: string;
+		nextHop: string;
+		interfacePort?: number | null;
+		metric?: number;
+	}) => void;
+	onDeleteRoute?: (id: string) => void;
 	onSimulateReachability?: (deviceId: string) => void;
 }
 
@@ -33,10 +46,13 @@ export default function DeviceContextMenu({
 	y,
 	device,
 	portConfigs,
+	routes = [],
 	onClose,
 	onUpdateDevice,
 	onUpdatePortConfig,
 	onDeleteDevice,
+	onUpsertRoute,
+	onDeleteRoute,
 	onSimulateReachability,
 }: DeviceContextMenuProps) {
 	const menuRef = useRef<HTMLDivElement>(null);
@@ -67,6 +83,63 @@ export default function DeviceContextMenu({
 		});
 		setShowMgmtPanel(false);
 	}, [device.id, mgmtIpValue, mgmtGwValue, onUpdatePortConfig]);
+
+	/* ── Routing table state ── */
+	const [showRoutingPanel, setShowRoutingPanel] = useState(false);
+	const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
+	const [routeDest, setRouteDest] = useState("");
+	const [routeNextHop, setRouteNextHop] = useState("");
+	const [routeIfacePort, setRouteIfacePort] = useState("");
+	const [routeMetric, setRouteMetric] = useState("100");
+
+	const editRoute = useCallback(
+		(route: RouteRow) => {
+			setEditingRouteId(route.id);
+			setRouteDest(route.destination);
+			setRouteNextHop(route.nextHop);
+			setRouteIfacePort(
+				route.interfacePort != null ? String(route.interfacePort) : "",
+			);
+			setRouteMetric(String(route.metric ?? 100));
+		},
+		[],
+	);
+
+	const clearRouteForm = useCallback(() => {
+		setEditingRouteId(null);
+		setRouteDest("");
+		setRouteNextHop("");
+		setRouteIfacePort("");
+		setRouteMetric("100");
+	}, []);
+
+	const saveRoute = useCallback(() => {
+		if (!onUpsertRoute) return;
+		if (!routeDest.trim() || !routeNextHop.trim()) return;
+		onUpsertRoute({
+			...(editingRouteId ? { id: editingRouteId } : {}),
+			deviceId: device.id,
+			destination: routeDest.trim(),
+			nextHop: routeNextHop.trim(),
+			interfacePort: routeIfacePort.trim()
+				? Number(routeIfacePort.trim())
+				: null,
+			metric: Number(routeMetric) || 100,
+		});
+		clearRouteForm();
+	}, [
+		onUpsertRoute,
+		editingRouteId,
+		device.id,
+		routeDest,
+		routeNextHop,
+		routeIfacePort,
+		routeMetric,
+		clearRouteForm,
+	]);
+
+	/* ── Max speed panel state ── */
+	const [showSpeedPanel, setShowSpeedPanel] = useState(false);
 
 	/* ── Click-away & escape ── */
 	useEffect(() => {
@@ -262,6 +335,216 @@ export default function DeviceContextMenu({
 						</>
 					)}
 
+					{/* ── Max Speed selector ── */}
+					<div className="border-t border-(--app-border-light) my-1" />
+					{!showSpeedPanel ? (
+						<button
+							type="button"
+							className="w-full px-3 py-1.5 text-left text-(--app-text) hover:bg-(--app-surface-hover) flex items-center justify-between"
+							onClick={() => setShowSpeedPanel(true)}
+						>
+							<span className="flex items-center gap-2">
+								<SpeedIcon />
+								Max Speed
+							</span>
+							<span className="text-[10px] text-(--app-text-muted) font-mono">
+								{device.maxSpeed ?? "—"}
+							</span>
+						</button>
+					) : (
+						<div className="px-3 py-2 space-y-1">
+							<label className="text-[10px] text-(--app-text-dim) uppercase tracking-wider block">
+								Max Link Speed
+							</label>
+							<div className="grid grid-cols-3 gap-1">
+								{SPEED_OPTIONS.map((opt) => (
+									<button
+										key={opt}
+										type="button"
+										className={`px-1.5 py-1 text-[10px] rounded border ${
+											device.maxSpeed === opt
+												? "border-blue-500 bg-blue-500/20 text-blue-300"
+												: "border-(--app-border-light) text-(--app-text-muted) hover:bg-(--app-surface-hover)"
+										}`}
+										onClick={() => {
+											onUpdateDevice(device.id, { maxSpeed: opt });
+											setShowSpeedPanel(false);
+										}}
+									>
+										{opt}
+									</button>
+								))}
+							</div>
+							<div className="flex gap-1 mt-1">
+								<button
+									type="button"
+									className="flex-1 px-2 py-1 bg-(--app-surface-hover) hover:bg-(--app-border-light) text-(--app-text-muted) text-xs rounded"
+									onClick={() => {
+										onUpdateDevice(device.id, { maxSpeed: null });
+										setShowSpeedPanel(false);
+									}}
+								>
+									Clear
+								</button>
+								<button
+									type="button"
+									className="px-2 py-1 bg-(--app-surface-hover) hover:bg-(--app-border-light) text-(--app-text-muted) text-xs rounded"
+									onClick={() => setShowSpeedPanel(false)}
+								>
+									Cancel
+								</button>
+							</div>
+						</div>
+					)}
+
+					{/* ── Routing Table ── */}
+					{showIpForwarding && onUpsertRoute && onDeleteRoute && (
+						<>
+							<div className="border-t border-(--app-border-light) my-1" />
+							{!showRoutingPanel ? (
+								<button
+									type="button"
+									className="w-full px-3 py-1.5 text-left text-(--app-text) hover:bg-(--app-surface-hover) flex items-center justify-between"
+									onClick={() => setShowRoutingPanel(true)}
+								>
+									<span className="flex items-center gap-2">
+										<RouteIcon />
+										Routing Table
+									</span>
+									<span className="text-[10px] text-(--app-text-muted)">
+										{routes.length} route{routes.length !== 1 ? "s" : ""}
+									</span>
+								</button>
+							) : (
+								<div className="px-3 py-2 space-y-2 max-h-80 overflow-y-auto">
+									<div className="flex items-center justify-between">
+										<label className="text-[10px] text-(--app-text-dim) uppercase tracking-wider">
+											Static Routes
+										</label>
+										<button
+											type="button"
+											className="text-[9px] text-(--app-text-muted) hover:text-(--app-text)"
+											onClick={() => setShowRoutingPanel(false)}
+										>
+											Collapse
+										</button>
+									</div>
+
+									{!device.ipForwarding && (
+										<div className="text-[10px] text-amber-400 bg-amber-400/10 rounded px-2 py-1">
+											IP forwarding is disabled — routes won't be used until forwarding is enabled.
+										</div>
+									)}
+
+									{/* Existing routes */}
+									{routes.length > 0 ? (
+										<div className="space-y-1">
+											{routes.map((r) => (
+												<div
+													key={r.id}
+													className="flex items-center gap-1 bg-(--app-surface) rounded px-2 py-1 text-[10px] font-mono"
+												>
+													<div className="flex-1 min-w-0 truncate text-(--app-text)">
+														<span className="text-(--app-text-dim)">dst:</span>{" "}
+														{r.destination}
+													</div>
+													<div className="flex-1 min-w-0 truncate text-(--app-text)">
+														<span className="text-(--app-text-dim)">via:</span>{" "}
+														{r.nextHop}
+													</div>
+													{r.interfacePort != null && (
+														<span className="text-(--app-text-muted)">
+															P{r.interfacePort}
+														</span>
+													)}
+													<span className="text-(--app-text-muted)">
+														m:{r.metric}
+													</span>
+													<button
+														type="button"
+														className="text-blue-400 hover:text-blue-300 px-1"
+														onClick={() => editRoute(r)}
+														title="Edit"
+													>
+														✎
+													</button>
+													<button
+														type="button"
+														className="text-red-400 hover:text-red-300 px-1"
+														onClick={() => onDeleteRoute(r.id)}
+														title="Delete"
+													>
+														×
+													</button>
+												</div>
+											))}
+										</div>
+									) : (
+										<p className="text-[10px] text-(--app-text-dim) italic">
+											No static routes configured. Add one below.
+										</p>
+									)}
+
+									{/* Add / edit route form */}
+									<div className="space-y-1 pt-1 border-t border-(--app-border-light)">
+										<p className="text-[9px] text-(--app-text-dim)">
+											{editingRouteId ? "Edit route" : "Add route"}
+										</p>
+										<input
+											type="text"
+											placeholder="Destination (CIDR) e.g. 0.0.0.0/0"
+											value={routeDest}
+											onChange={(e) => setRouteDest(e.target.value)}
+											className="w-full bg-(--app-input-bg) border border-(--app-border-light) rounded px-2 py-1 text-[11px] text-(--app-text) font-mono outline-none"
+										/>
+										<input
+											type="text"
+											placeholder="Next Hop e.g. 192.168.1.1"
+											value={routeNextHop}
+											onChange={(e) => setRouteNextHop(e.target.value)}
+											className="w-full bg-(--app-input-bg) border border-(--app-border-light) rounded px-2 py-1 text-[11px] text-(--app-text) font-mono outline-none"
+										/>
+										<div className="flex gap-1">
+											<input
+												type="text"
+												placeholder="Port (opt)"
+												value={routeIfacePort}
+												onChange={(e) => setRouteIfacePort(e.target.value)}
+												className="w-16 bg-(--app-input-bg) border border-(--app-border-light) rounded px-2 py-1 text-[11px] text-(--app-text) font-mono outline-none"
+											/>
+											<input
+												type="text"
+												placeholder="Metric"
+												value={routeMetric}
+												onChange={(e) => setRouteMetric(e.target.value)}
+												className="w-16 bg-(--app-input-bg) border border-(--app-border-light) rounded px-2 py-1 text-[11px] text-(--app-text) font-mono outline-none"
+											/>
+										</div>
+										<div className="flex gap-1">
+											<button
+												type="button"
+												className="flex-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs rounded disabled:opacity-40"
+												disabled={!routeDest.trim() || !routeNextHop.trim()}
+												onClick={saveRoute}
+											>
+												{editingRouteId ? "Update" : "Add"}
+											</button>
+											{editingRouteId && (
+												<button
+													type="button"
+													className="px-2 py-1 bg-(--app-surface-hover) hover:bg-(--app-border-light) text-(--app-text-muted) text-xs rounded"
+													onClick={clearRouteForm}
+												>
+													Cancel
+												</button>
+											)}
+										</div>
+									</div>
+								</div>
+							)}
+						</>
+					)}
+
 					{/* Simulate Reachability */}
 					{onSimulateReachability && (
 						<>
@@ -396,6 +679,40 @@ function ReachabilityIcon() {
 			<path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
 			<path d="M2 12h20" />
 			<path d="M12 2v20" />
+		</svg>
+	);
+}
+
+function SpeedIcon() {
+	return (
+		<svg
+			width="14"
+			height="14"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+		>
+			<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+		</svg>
+	);
+}
+
+function RouteIcon() {
+	return (
+		<svg
+			width="14"
+			height="14"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+		>
+			<path d="M3 17h2l3-6 4 8 3-10 2 8h4" />
 		</svg>
 	);
 }
