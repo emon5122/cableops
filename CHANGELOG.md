@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/emon5122/cableops/compare/v1.5.0...v1.5.1) (2026-02-23)
+
+
+### Bug Fixes
+
+* enhance NAT handling for home routers and DHCP client detection ([e2d0318](https://github.com/emon5122/cableops/commit/e2d0318243c8a1e306e8da7cc222e96812a12bd0))
+
 ## [1.5.0](https://github.com/emon5122/cableops/compare/v1.4.1...v1.5.0) (2026-02-23)
 
 
