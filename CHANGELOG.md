@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.4.0](https://github.com/emon5122/cableops/compare/v1.3.0...v1.4.0) (2026-02-23)
+
+
+### Features
+
+* add management IP configuration for devices ([6d2414b](https://github.com/emon5122/cableops/commit/6d2414b0f3340c71ce2dab46679452fbd1e8c403))
+* enhance device context menu with routing table and max speed configuration ([904b870](https://github.com/emon5122/cableops/commit/904b870939a47510ce187a99f25e7197ea2543ce))
+* implement device reachability simulation and validation in topology ([58d0062](https://github.com/emon5122/cableops/commit/58d006243e22addc3a3c8ddcfff7aa29a8cd3c2c))
+
 ## [1.3.0](https://github.com/emon5122/cableops/compare/v1.2.0...v1.3.0) (2026-02-22)
 
 
