@@ -1578,7 +1578,10 @@ export function analyzeNetwork(
 			});
 
 		for (const dev of devices) {
-			if (!dev.ipForwarding) continue;
+			/* Home routers ("router" type) implicitly forward traffic via NAT
+			   even without an explicit ipForwarding flag. */
+			const isHomeRouter = dev.deviceType === "router";
+			if (!dev.ipForwarding && !isHomeRouter) continue;
 
 			const devSegmentIds = new Set<string>();
 			for (const seg of segments) {
@@ -1618,15 +1621,37 @@ export function analyzeNetwork(
 			const natIfaces = portConfigs.filter(
 				(pc) => pc.deviceId === dev.id && pc.natEnabled,
 			);
-			for (const natIface of natIfaces) {
-				const outSeg = portToSegment.get(`${dev.id}:${natIface.portNumber}`);
-				if (!outSeg) continue;
-				if (!segmentHasCloud(outSeg)) continue;
 
-				for (const ingressId of devSegmentIds) {
-					if (ingressId === outSeg.id) continue;
-					adj.get(ingressId)?.add(outSeg.id);
-					natOneWayEdges.add(`${ingressId}->${outSeg.id}`);
+			if (isHomeRouter && natIfaces.length > 0) {
+				/* Home routers: NAT is a device-level function. Find the cloud-
+				   facing segment on ANY port and create edges from ALL other
+				   segments to it. NAT port placement doesn't matter. */
+				let cloudSeg: NetworkSegment | undefined;
+				for (const segId of devSegmentIds) {
+					const seg = segments.find((s) => s.id === segId);
+					if (seg && segmentHasCloud(seg)) {
+						cloudSeg = seg;
+						break;
+					}
+				}
+				if (cloudSeg) {
+					for (const ingressId of devSegmentIds) {
+						if (ingressId === cloudSeg.id) continue;
+						adj.get(ingressId)?.add(cloudSeg.id);
+						natOneWayEdges.add(`${ingressId}->${cloudSeg.id}`);
+					}
+				}
+			} else {
+				for (const natIface of natIfaces) {
+					const outSeg = portToSegment.get(`${dev.id}:${natIface.portNumber}`);
+					if (!outSeg) continue;
+					if (!segmentHasCloud(outSeg)) continue;
+
+					for (const ingressId of devSegmentIds) {
+						if (ingressId === outSeg.id) continue;
+						adj.get(ingressId)?.add(outSeg.id);
+						natOneWayEdges.add(`${ingressId}->${outSeg.id}`);
+					}
 				}
 			}
 		}
@@ -1781,6 +1806,18 @@ export function analyzeNetwork(
 			const otherPlain = parseIpPlain(other.ipAddress.split("/")[0]);
 			if (otherPlain === null) continue;
 			if (otherPlain >= start && otherPlain <= end) {
+				/* If the other device is a simple endpoint without any server/static
+				   indicators, its IP was most likely assigned BY this DHCP server —
+				   not a collision. Only warn for explicitly static configurations. */
+				const otherDev = devices.find((d) => d.id === sp.deviceId);
+				const isLikelyDhcpClient =
+					!other.reserved &&
+					!other.dhcpEnabled &&
+					!other.natEnabled &&
+					otherDev &&
+					!["router", "managed-router", "cloud"].includes(otherDev.deviceType);
+				if (isLikelyDhcpClient) continue;
+
 				const dev = devices.find((d) => d.id === sp.deviceId);
 				issues.push({
 					severity: "warning",
@@ -1867,7 +1904,7 @@ export function analyzeNetwork(
 		const dev = devices.find((d) => d.id === iface.deviceId);
 		if (!dev) continue;
 
-		if (!dev.ipForwarding) {
+		if (!dev.ipForwarding && dev.deviceType !== "router") {
 			issues.push({
 				severity: "warning",
 				deviceId: dev.id,
