@@ -3,10 +3,12 @@ import DeviceIcon from "@/components/topology/DeviceIcon";
 import PortContextMenu from "@/components/topology/PortContextMenu";
 import {
 	type AnnotationRow,
+	computeDeviceReachability,
 	type ConnectionRow,
 	DEVICE_CAPABILITIES,
 	DEVICE_NODE_WIDTH,
 	DEVICE_TYPE_LABELS,
+	type DeviceReachabilityResult,
 	type DeviceRow,
 	type DeviceType,
 	discoverAllSegments,
@@ -20,7 +22,9 @@ import {
 	luminance,
 	PORT_SIZE,
 	type PortSelection,
-	sameSubnet,
+	type ReachabilityStatus,
+	type RouteRow,
+	sameSubnet
 } from "@/lib/topology-types";
 import { motion } from "framer-motion";
 import { toPng } from "html-to-image";
@@ -46,6 +50,7 @@ interface TopologyCanvasProps {
 	connections: ConnectionRow[];
 	portConfigs: InterfaceRow[];
 	annotations: AnnotationRow[];
+	routes?: RouteRow[];
 	selectedPort: PortSelection | null;
 	onPortClick: (deviceId: string, portNumber: number) => void;
 	onDeviceMove: (deviceId: string, x: number, y: number) => void;
@@ -104,6 +109,7 @@ export default function TopologyCanvas({
 	connections,
 	portConfigs,
 	annotations,
+	routes = [],
 	selectedPort,
 	onPortClick,
 	onDeviceMove,
@@ -217,11 +223,27 @@ export default function TopologyCanvas({
 			if (e.key === "Escape") {
 				setMultiSelectedDevices(new Set());
 				setMultiSelectedAnnotations(new Set());
+				setSimulationFocusId(null);
 			}
 		};
 		document.addEventListener("keydown", onKeyDown);
 		return () => document.removeEventListener("keydown", onKeyDown);
 	}, [devices, annotations]);
+
+	/* ── Reachability simulation mode ── */
+	const [simulationFocusId, setSimulationFocusId] = useState<string | null>(null);
+
+	const reachability = useMemo<DeviceReachabilityResult | null>(() => {
+		if (!simulationFocusId) return null;
+		return computeDeviceReachability(simulationFocusId, devices, connections, portConfigs, routes);
+	}, [simulationFocusId, devices, connections, portConfigs, routes]);
+
+	// Clear simulation when the focus device is deleted
+	useEffect(() => {
+		if (simulationFocusId && !devices.some((d) => d.id === simulationFocusId)) {
+			setSimulationFocusId(null);
+		}
+	}, [simulationFocusId, devices]);
 
 	const toggleFullscreen = useCallback(() => {
 		if (!containerRef.current) return;
@@ -1089,6 +1111,71 @@ export default function TopologyCanvas({
 				</div>
 			</div>
 
+			{/* ── Reachability simulation toolbar ── */}
+			{reachability && (() => {
+				const focusDev = devices.find((d) => d.id === simulationFocusId);
+				const counts = { l2: 0, l3: 0, nat: 0, unreachable: 0 };
+				for (const [, status] of reachability.deviceStatus) {
+					if (status === "l2") counts.l2++;
+					else if (status === "l3") counts.l3++;
+					else if (status === "nat-only") counts.nat++;
+					else if (status === "unreachable") counts.unreachable++;
+				}
+				const total = counts.l2 + counts.l3 + counts.nat;
+				return (
+					<div
+						className="absolute top-2 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-2 rounded-xl border border-(--app-border-light) shadow-xl backdrop-blur-sm text-sm"
+						style={{ zIndex: 50, background: "var(--app-surface-overlay, rgba(15,23,42,0.92))" }}
+					>
+						<div className="flex items-center gap-2">
+							<span
+								className="inline-block w-2.5 h-2.5 rounded-full animate-pulse"
+								style={{ backgroundColor: "#22d3ee" }}
+							/>
+							<span className="font-semibold text-(--app-text)">
+								Reachability from {focusDev?.name || "Device"}
+							</span>
+						</div>
+						<div className="w-px h-5 bg-(--app-border)" />
+						<div className="flex items-center gap-3 text-xs">
+							{counts.l2 > 0 && (
+								<span className="flex items-center gap-1">
+									<span className="w-2 h-2 rounded-full" style={{ background: "#4ade80" }} />
+									<span style={{ color: "#4ade80" }}>{counts.l2} L2</span>
+								</span>
+							)}
+							{counts.l3 > 0 && (
+								<span className="flex items-center gap-1">
+									<span className="w-2 h-2 rounded-full" style={{ background: "#60a5fa" }} />
+									<span style={{ color: "#60a5fa" }}>{counts.l3} L3</span>
+								</span>
+							)}
+							{counts.nat > 0 && (
+								<span className="flex items-center gap-1">
+									<span className="w-2 h-2 rounded-full" style={{ background: "#fb923c" }} />
+									<span style={{ color: "#fb923c" }}>{counts.nat} NAT</span>
+								</span>
+							)}
+							{counts.unreachable > 0 && (
+								<span className="flex items-center gap-1">
+									<span className="w-2 h-2 rounded-full" style={{ background: "#ef4444" }} />
+									<span style={{ color: "#ef4444" }}>{counts.unreachable} unreachable</span>
+								</span>
+							)}
+							<span className="text-(--app-text-muted)">{total}/{total + counts.unreachable} reachable</span>
+						</div>
+						<div className="w-px h-5 bg-(--app-border)" />
+						<button
+							type="button"
+							className="px-2.5 py-1 rounded-md text-xs font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+							onClick={() => setSimulationFocusId(null)}
+						>
+							Exit
+						</button>
+					</div>
+				);
+			})()}
+
 			{/* ── Scaled canvas content ── */}
 			<div
 				ref={canvasInnerRef}
@@ -1281,6 +1368,42 @@ export default function TopologyCanvas({
 								? "border-double"
 								: "";
 
+				/* ── Reachability simulation overlay ── */
+				const simStatus: ReachabilityStatus | null =
+					reachability?.deviceStatus.get(device.id) ?? null;
+				const simActive = reachability !== null;
+				const simOpacity = !simActive
+					? 1
+					: simStatus === "focus"
+						? 1
+						: simStatus === "l2" || simStatus === "l3"
+							? 1
+							: simStatus === "nat-only"
+								? 0.85
+								: 0.22;
+				const simBorderColor = !simActive
+					? null
+					: simStatus === "focus"
+						? "#22d3ee"
+						: simStatus === "l2"
+							? "#4ade80"
+							: simStatus === "l3"
+								? "#60a5fa"
+								: simStatus === "nat-only"
+									? "#fb923c"
+									: null;
+				const simGlow = !simActive
+					? ""
+					: simStatus === "focus"
+						? "0 0 18px 4px rgba(34,211,238,0.55)"
+						: simStatus === "l2"
+							? "0 0 12px 2px rgba(74,222,128,0.35)"
+							: simStatus === "l3"
+								? "0 0 12px 2px rgba(96,165,250,0.35)"
+								: simStatus === "nat-only"
+									? "0 0 12px 2px rgba(251,146,60,0.35)"
+									: "";
+
 				return (
 					<motion.div
 						key={device.id}
@@ -1291,21 +1414,31 @@ export default function TopologyCanvas({
 							width: DEVICE_NODE_WIDTH,
 							height: nodeHeight,
 							zIndex: drag.deviceId === device.id ? 30 : 10,
+							opacity: simOpacity,
+							transition: "opacity 0.3s ease",
 						}}
 						initial={{ opacity: 0, scale: 0.98 }}
-						animate={{ opacity: 1, scale: 1 }}
+						animate={{ opacity: simOpacity, scale: 1 }}
 						whileHover={{ y: -1 }}
 						transition={{ duration: 0.15 }}
 					>
 						<div
 							className={`rounded-xl border-2 shadow-lg transition-shadow ${chassisClass} ${
-								isMultiSelected
-									? "border-cyan-400 shadow-cyan-400/20 ring-2 ring-cyan-400/30"
-									: isSelected
-										? "border-white/50 shadow-white/10"
-										: "border-(--app-border) shadow-black/30"
+								simBorderColor
+									? ""
+									: isMultiSelected
+										? "border-cyan-400 shadow-cyan-400/20 ring-2 ring-cyan-400/30"
+										: isSelected
+											? "border-white/50 shadow-white/10"
+											: "border-(--app-border) shadow-black/30"
 							}`}
-							style={{ background: "var(--app-surface)", height: "100%" }}
+							style={{
+								background: "var(--app-surface)",
+								height: "100%",
+								...(simBorderColor
+									? { borderColor: simBorderColor, boxShadow: simGlow }
+									: {}),
+							}}
 						>
 							{/* Header — right-click opens device-level context menu */}
 							<div
@@ -1688,8 +1821,25 @@ export default function TopologyCanvas({
 					const issueTag = connectionIssueById.get(conn.id) ?? null;
 					const isInvalid = !!issueTag;
 
+					/* ── Reachability wire overlay ── */
+					const simWireReachable = reachability?.reachableConnections.has(conn.id);
+					const simWireNat = reachability?.natOnlyConnections.has(conn.id);
+					const simWireActive = simWireReachable || simWireNat;
+					const simWireColor = reachability
+						? simWireNat
+							? "#fb923c"
+							: simWireReachable
+								? "#4ade80"
+								: null
+						: null;
+					const simWireOpacity = reachability
+						? simWireActive
+							? 1
+							: 0.1
+						: null;
+
 					return (
-						<g key={conn.id}>
+						<g key={conn.id} opacity={simWireOpacity ?? undefined}>
 							{/* Invisible fat hit area for clicking */}
 							<path
 								d={path}
@@ -1705,10 +1855,10 @@ export default function TopologyCanvas({
 							{/* Glow behind */}
 							<path
 								d={path}
-								stroke={`url(#wire-grad-${conn.id})`}
-								strokeWidth={isWireSel ? 8 : 5}
+								stroke={simWireColor ?? `url(#wire-grad-${conn.id})`}
+								strokeWidth={isWireSel ? 8 : simWireActive ? 6 : 5}
 								fill="none"
-								opacity={isWireSel ? 0.45 : isInvalid ? 0.12 : 0.3}
+								opacity={isWireSel ? 0.45 : simWireActive ? 0.5 : isInvalid ? 0.12 : 0.3}
 								strokeLinecap="round"
 								strokeDasharray={isWifi ? "8 6" : undefined}
 								style={{ pointerEvents: "none" }}
@@ -1716,10 +1866,10 @@ export default function TopologyCanvas({
 							{/* Main wire */}
 							<path
 								d={path}
-								stroke={isWireSel ? "var(--app-text, #fff)" : `url(#wire-grad-${conn.id})`}
+								stroke={simWireColor ?? (isWireSel ? "var(--app-text, #fff)" : `url(#wire-grad-${conn.id})`)}
 								strokeWidth={isWireSel ? 3 : 2.5}
 								fill="none"
-								opacity={isInvalid ? 0.4 : 0.92}
+								opacity={simWireActive ? 0.95 : isInvalid ? 0.4 : 0.92}
 								strokeLinecap="round"
 								strokeDasharray={isWifi ? "8 6" : undefined}
 								style={{ pointerEvents: "none" }}
@@ -2013,6 +2163,10 @@ export default function TopologyCanvas({
 							onUpdateDevice={onUpdateDevice}
 							onUpdatePortConfig={onUpdatePortConfig}
 							onDeleteDevice={onDeleteDevice}
+							onSimulateReachability={(deviceId) => {
+								setSimulationFocusId(deviceId);
+								setDeviceMenu(null);
+							}}
 						/>
 					);
 				})()}

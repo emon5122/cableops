@@ -25,6 +25,7 @@ interface DeviceContextMenuProps {
 		gateway?: string | null;
 	}) => void;
 	onDeleteDevice: (id: string) => void;
+	onSimulateReachability?: (deviceId: string) => void;
 }
 
 export default function DeviceContextMenu({
@@ -36,6 +37,7 @@ export default function DeviceContextMenu({
 	onUpdateDevice,
 	onUpdatePortConfig,
 	onDeleteDevice,
+	onSimulateReachability,
 }: DeviceContextMenuProps) {
 	const menuRef = useRef<HTMLDivElement>(null);
 	const caps =
@@ -260,6 +262,24 @@ export default function DeviceContextMenu({
 						</>
 					)}
 
+					{/* Simulate Reachability */}
+					{onSimulateReachability && (
+						<>
+							<div className="border-t border-(--app-border-light) my-1" />
+							<button
+								type="button"
+								className="w-full px-3 py-1.5 text-left text-cyan-400 hover:bg-cyan-400/10 flex items-center gap-2"
+								onClick={() => {
+									onSimulateReachability(device.id);
+									onClose();
+								}}
+							>
+								<ReachabilityIcon />
+								Simulate Reachability
+							</button>
+						</>
+					)}
+
 					{/* Delete */}
 					<div className="border-t border-(--app-border-light) my-1" />
 					<button
@@ -356,6 +376,26 @@ function MgmtIpIcon() {
 			<circle cx="12" cy="10" r="3" />
 			<path d="M12 7v-1" />
 			<path d="M12 14v-1" />
+		</svg>
+	);
+}
+
+function ReachabilityIcon() {
+	return (
+		<svg
+			width="14"
+			height="14"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+		>
+			<circle cx="12" cy="12" r="10" />
+			<path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+			<path d="M2 12h20" />
+			<path d="M12 2v20" />
 		</svg>
 	);
 }

@@ -44,6 +44,7 @@
             "enum": [
               "switch",
               "router",
+              "managed-router",
               "pc",
               "server",
               "ip-phone",
@@ -60,6 +61,10 @@
               "modem",
               "laptop",
               "tablet",
+              "pa-speaker",
+              "pa-server",
+              "modality",
+              "lab-instrument",
               "ap"
             ]
           },

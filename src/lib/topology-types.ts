@@ -1693,7 +1693,19 @@ export function analyzeNetwork(
 				severity: "warning",
 				deviceId: iface.deviceId,
 				portNumber: iface.portNumber,
-				message: `${dev?.name ?? "Device"} port ${iface.portNumber} subnet ${ipToString(parsed.network)}/${parsed.cidr} doesn't match DHCP range ${iface.dhcpRangeStart}–${iface.dhcpRangeEnd}`,
+				message: `${dev?.name ?? "Device"} port ${iface.portNumber} subnet ${ipToString(parsed.network)}/${parsed.cidr} doesn't match DHCP range start ${iface.dhcpRangeStart}`,
+				type: "no_dhcp_match",
+			});
+			continue;
+		}
+
+		if ((end & parsed.mask) >>> 0 !== parsed.network) {
+			const dev = devices.find((d) => d.id === iface.deviceId);
+			issues.push({
+				severity: "warning",
+				deviceId: iface.deviceId,
+				portNumber: iface.portNumber,
+				message: `${dev?.name ?? "Device"} port ${iface.portNumber} DHCP range end ${iface.dhcpRangeEnd} is outside subnet ${ipToString(parsed.network)}/${parsed.cidr}`,
 				type: "no_dhcp_match",
 			});
 			continue;
@@ -1988,7 +2000,8 @@ export function getNextDhcpIp(
 		const mask = cidr > 0 ? (~0 << (32 - cidr)) >>> 0 : 0;
 		const gwNet = (gw.ip & mask) >>> 0;
 		const startNet = (start & mask) >>> 0;
-		if (gwNet !== startNet)
+		const endNet = (end & mask) >>> 0;
+		if (gwNet !== startNet || gwNet !== endNet)
 			return null; /* DHCP range not in this port's subnet */
 	} else {
 		/* Derive CIDR from the common prefix of start..end range (min /24) */
@@ -2056,4 +2069,306 @@ export function getNextDhcpIp(
 		if (!assignedIps.has(ip)) return `${ipToString(ip)}/${cidr}`;
 	}
 	return null; /* Range exhausted */
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+ *  DEVICE-FOCUSED REACHABILITY SIMULATION
+ * ══════════════════════════════════════════════════════════════════════════════ */
+
+export type ReachabilityStatus = "focus" | "l2" | "l3" | "nat-only" | "unreachable";
+
+export interface DeviceReachabilityResult {
+	/** Reachability status per device id */
+	deviceStatus: Map<string, ReachabilityStatus>;
+	/** Connection IDs on fully reachable paths */
+	reachableConnections: Set<string>;
+	/** Connection IDs on NAT-only (outbound) paths */
+	natOnlyConnections: Set<string>;
+	/** Summary counts */
+	summary: {
+		l2: number;
+		l3: number;
+		natOnly: number;
+		unreachable: number;
+	};
+}
+
+/**
+ * Compute reachability from a single "focus" device to every other device.
+ *
+ * Steps:
+ *  1. Discover which L2 segments the focus device is in.
+ *  2. Build a directed cross-segment adjacency graph using IP-forwarding
+ *     devices and their routing tables (same logic as `analyzeNetwork` step 4).
+ *  3. BFS from the focus segments through the adjacency graph.
+ *  4. Classify every device as focus / l2 / l3 / nat-only / unreachable.
+ *  5. Return reachable and NAT-only connection sets for wire coloring.
+ */
+export function computeDeviceReachability(
+	focusDeviceId: string,
+	devices: DeviceRow[],
+	connections: ConnectionRow[],
+	portConfigs: InterfaceRow[],
+	routes: RouteRow[] = [],
+): DeviceReachabilityResult {
+	const segments = discoverAllSegments(devices, connections, portConfigs);
+
+	/* ── Port → segment map ── */
+	const portToSeg = new Map<string, NetworkSegment>();
+	for (const seg of segments) {
+		for (const sp of seg.ports) {
+			portToSeg.set(`${sp.deviceId}:${sp.portNumber}`, seg);
+		}
+	}
+
+	/* ── Focus device's segments ── */
+	const focusSegIds = new Set<string>();
+	for (const seg of segments) {
+		if (seg.ports.some((sp) => sp.deviceId === focusDeviceId)) {
+			focusSegIds.add(seg.id);
+		}
+	}
+
+	/* ── Cross-segment directed adjacency ── */
+	const adj = new Map<string, Set<string>>();
+	const natEdges = new Set<string>();
+	for (const s of segments) adj.set(s.id, new Set());
+
+	const getRepIp = (seg: NetworkSegment): number | null => {
+		if (seg.gateway?.ip) {
+			const p = parseIp(seg.gateway.ip);
+			if (p) return p.ip;
+		}
+		for (const sp of seg.ports) {
+			const iface = portConfigs.find(
+				(pc) =>
+					pc.deviceId === sp.deviceId &&
+					pc.portNumber === sp.portNumber &&
+					pc.ipAddress,
+			);
+			if (iface?.ipAddress) {
+				const p = parseIp(iface.ipAddress);
+				if (p) return p.ip;
+			}
+		}
+		return null;
+	};
+
+	type RouteEntry = {
+		dest: { ip: number; cidr: number; network: number; mask: number };
+		egressPort: number;
+		metric: number;
+	};
+
+	const routesByDevice = new Map<string, RouteEntry[]>();
+	for (const dev of devices) {
+		const entries: RouteEntry[] = [];
+		for (const iface of portConfigs) {
+			if (iface.deviceId !== dev.id || !iface.ipAddress) continue;
+			const p = parseIp(iface.ipAddress);
+			if (p) entries.push({ dest: p, egressPort: iface.portNumber, metric: 0 });
+		}
+		for (const r of routes.filter((rr) => rr.deviceId === dev.id)) {
+			const pDest = parseIp(r.destination);
+			if (!pDest) continue;
+			let ePort = r.interfacePort ?? null;
+			if (ePort == null) {
+				const nh = parseIpPlain(r.nextHop);
+				if (nh !== null) {
+					for (const iface of portConfigs) {
+						if (iface.deviceId !== dev.id || !iface.ipAddress) continue;
+						const pi = parseIp(iface.ipAddress);
+						if (pi && ((nh & pi.mask) >>> 0) === pi.network) {
+							ePort = iface.portNumber;
+							break;
+						}
+					}
+				}
+			}
+			if (ePort != null) {
+				entries.push({ dest: pDest, egressPort: ePort, metric: r.metric ?? 100 });
+			}
+		}
+		routesByDevice.set(dev.id, entries);
+	}
+
+	const selectRoute = (devId: string, targetIp: number): RouteEntry | null => {
+		const entries = routesByDevice.get(devId) ?? [];
+		const matches = entries.filter(
+			(e) => ((targetIp & e.dest.mask) >>> 0) === e.dest.network,
+		);
+		if (matches.length === 0) return null;
+		matches.sort((a, b) => {
+			if (b.dest.cidr !== a.dest.cidr) return b.dest.cidr - a.dest.cidr;
+			return a.metric - b.metric;
+		});
+		return matches[0] ?? null;
+	};
+
+	const segHasCloud = (seg: NetworkSegment): boolean =>
+		seg.ports.some((sp) => {
+			const d = devices.find((dd) => dd.id === sp.deviceId);
+			return d?.deviceType === "cloud";
+		});
+
+	for (const dev of devices) {
+		if (!dev.ipForwarding) continue;
+		const devSegIds = new Set<string>();
+		for (const seg of segments) {
+			if (seg.ports.some((sp) => sp.deviceId === dev.id)) {
+				devSegIds.add(seg.id);
+			}
+		}
+		if (devSegIds.size < 2) continue;
+
+		for (const ingressId of devSegIds) {
+			const ingressSeg = segments.find((s) => s.id === ingressId);
+			if (!ingressSeg) continue;
+			const ingressIp = getRepIp(ingressSeg);
+
+			for (const targetSeg of segments) {
+				if (targetSeg.id === ingressId) continue;
+				const targetIp = getRepIp(targetSeg);
+				if (targetIp === null) continue;
+				const fwdRoute = selectRoute(dev.id, targetIp);
+				if (!fwdRoute) continue;
+				if (ingressIp !== null && !selectRoute(dev.id, ingressIp)) continue;
+				const outSeg = portToSeg.get(`${dev.id}:${fwdRoute.egressPort}`);
+				if (!outSeg || outSeg.id === ingressId) continue;
+				adj.get(ingressId)?.add(outSeg.id);
+			}
+		}
+
+		/* NAT edges */
+		const natIfaces = portConfigs.filter(
+			(pc) => pc.deviceId === dev.id && pc.natEnabled,
+		);
+		for (const natIface of natIfaces) {
+			const outSeg = portToSeg.get(`${dev.id}:${natIface.portNumber}`);
+			if (!outSeg || !segHasCloud(outSeg)) continue;
+			for (const ingressId of devSegIds) {
+				if (ingressId === outSeg.id) continue;
+				adj.get(ingressId)?.add(outSeg.id);
+				natEdges.add(`${ingressId}->${outSeg.id}`);
+			}
+		}
+	}
+
+	/* ── BFS from focus segments ── */
+	const reachableSegs = new Set<string>();
+	const natOnlySegs = new Set<string>();
+	const queue = [...focusSegIds];
+	const visited = new Set<string>();
+	while (queue.length > 0) {
+		const cur = queue.shift()!;
+		if (visited.has(cur)) continue;
+		visited.add(cur);
+		reachableSegs.add(cur);
+		for (const nb of adj.get(cur) ?? []) {
+			if (!visited.has(nb)) {
+				queue.push(nb);
+				if (natEdges.has(`${cur}->${nb}`)) natOnlySegs.add(nb);
+			}
+		}
+	}
+
+	/* Also include bidirectional (return-path aware) reachability through
+	   undirected edges, same as analyzeNetwork. */
+	const undirected = new Map<string, Set<string>>();
+	for (const s of segments) undirected.set(s.id, new Set());
+	for (const [src, targets] of adj) {
+		for (const dst of targets) {
+			const bidir = adj.get(dst)?.has(src) ?? false;
+			const natReach =
+				natEdges.has(`${src}->${dst}`) || natEdges.has(`${dst}->${src}`);
+			if (bidir || natReach) {
+				undirected.get(src)?.add(dst);
+				undirected.get(dst)?.add(src);
+			}
+		}
+	}
+	/* Re-BFS over undirected graph for symmetric reachability */
+	const symReachable = new Set<string>();
+	const symQueue = [...focusSegIds];
+	const symVisited = new Set<string>();
+	while (symQueue.length > 0) {
+		const cur = symQueue.shift()!;
+		if (symVisited.has(cur)) continue;
+		symVisited.add(cur);
+		symReachable.add(cur);
+		for (const nb of undirected.get(cur) ?? []) {
+			if (!symVisited.has(nb)) symQueue.push(nb);
+		}
+	}
+
+	/* ── Map segments → device reachability status ── */
+	const deviceStatus = new Map<string, ReachabilityStatus>();
+	deviceStatus.set(focusDeviceId, "focus");
+	let l2Count = 0;
+	let l3Count = 0;
+	let natCount = 0;
+	let unreachableCount = 0;
+
+	for (const dev of devices) {
+		if (dev.id === focusDeviceId) continue;
+		const inFocusSeg = segments.some(
+			(seg) =>
+				focusSegIds.has(seg.id) &&
+				seg.ports.some((sp) => sp.deviceId === dev.id),
+		);
+		const inReachableSeg = segments.some(
+			(seg) =>
+				symReachable.has(seg.id) &&
+				seg.ports.some((sp) => sp.deviceId === dev.id),
+		);
+		const inNatSeg = segments.some(
+			(seg) =>
+				natOnlySegs.has(seg.id) &&
+				seg.ports.some((sp) => sp.deviceId === dev.id),
+		);
+
+		if (inFocusSeg) {
+			deviceStatus.set(dev.id, "l2");
+			l2Count++;
+		} else if (inReachableSeg && !inNatSeg) {
+			deviceStatus.set(dev.id, "l3");
+			l3Count++;
+		} else if (inNatSeg || inReachableSeg) {
+			deviceStatus.set(dev.id, "nat-only");
+			natCount++;
+		} else {
+			deviceStatus.set(dev.id, "unreachable");
+			unreachableCount++;
+		}
+	}
+
+	/* ── Map connections to reachability ── */
+	const reachableConnections = new Set<string>();
+	const natOnlyConnections = new Set<string>();
+	for (const conn of connections) {
+		const aSeg = portToSeg.get(`${conn.deviceAId}:${conn.portA}`);
+		const bSeg = portToSeg.get(`${conn.deviceBId}:${conn.portB}`);
+		if (!aSeg || !bSeg) continue;
+		const aReach = symReachable.has(aSeg.id);
+		const bReach = symReachable.has(bSeg.id);
+		if (aReach && bReach) {
+			if (natOnlySegs.has(aSeg.id) || natOnlySegs.has(bSeg.id)) {
+				natOnlyConnections.add(conn.id);
+			} else {
+				reachableConnections.add(conn.id);
+			}
+		}
+	}
+
+	return {
+		deviceStatus,
+		reachableConnections,
+		natOnlyConnections,
+		summary: {
+			l2: l2Count,
+			l3: l3Count,
+			natOnly: natCount,
+			unreachable: unreachableCount,
+		},
+	};
 }

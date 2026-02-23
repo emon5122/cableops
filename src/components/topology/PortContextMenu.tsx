@@ -13,6 +13,7 @@ import {
 	isBroadcastAddress,
 	isNetworkAddress,
 	parseIp,
+	validateGatewayInSubnet,
 	validatePortIp,
 } from "@/lib/topology-types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -321,6 +322,14 @@ export default function PortContextMenu({
 			portConfigs,
 		);
 	}, [ipValue, caps, deviceId, portNumber, devices, connections, portConfigs]);
+
+	/* ── Gateway subnet validation ── */
+	const gatewayValidation = useMemo(() => {
+		if (!gatewayValue.trim()) return null;
+		const portIp = portConfig?.ipAddress ?? ipValue.trim();
+		if (!portIp) return { valid: false, reason: "Set an IP address first before configuring a gateway" };
+		return validateGatewayInSubnet(portIp, gatewayValue.trim());
+	}, [gatewayValue, portConfig?.ipAddress, ipValue]);
 
 	/* ── Capability label for header ── */
 	const layerLabel =
@@ -1233,6 +1242,16 @@ export default function PortContextMenu({
 									if (e.key === "Enter") saveGateway();
 								}}
 							/>
+							{gatewayValidation && !gatewayValidation.valid && gatewayValidation.reason && (
+								<div className="text-[10px] bg-red-500/10 border border-red-500/30 text-red-400 rounded px-2 py-1.5">
+									⚠ {gatewayValidation.reason}
+								</div>
+							)}
+							{gatewayValidation?.valid && gatewayValue.trim() && (
+								<div className="text-[10px] bg-emerald-500/10 text-emerald-400 rounded px-2 py-1">
+									✓ Gateway is within the port's subnet
+								</div>
+							)}
 							<div className="flex gap-1">
 								<button
 									type="button"
