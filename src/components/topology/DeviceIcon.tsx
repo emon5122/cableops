@@ -51,6 +51,18 @@ export default function DeviceIcon({
 				</svg>
 			);
 
+		case "managed-router":
+			return (
+				<svg {...props}>
+					<circle cx="12" cy="12" r="9" />
+					<path d="M12 3v18" />
+					<path d="M3 12h18" />
+					<path d="M5.5 5.5l13 13" />
+					<path d="M18.5 5.5l-13 13" />
+					<circle cx="12" cy="12" r="3" fill={color} stroke="none" />
+				</svg>
+			);
+
 		case "pc":
 			return (
 				<svg {...props}>

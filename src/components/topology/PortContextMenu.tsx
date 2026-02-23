@@ -1,16 +1,19 @@
 import {
-    type ConnectionRow,
-    DEVICE_CAPABILITIES,
-    type DeviceRow,
-    type DeviceType,
-    type InterfaceRow,
-    PORT_MODES,
-    PORT_ROLES,
-    type PortMode,
-    type PortRole,
-    SPEED_OPTIONS,
-    VLAN_PRESETS,
-    validatePortIp,
+	type ConnectionRow,
+	DEVICE_CAPABILITIES,
+	type DeviceRow,
+	type DeviceType,
+	type InterfaceRow,
+	PORT_MODES,
+	PORT_ROLES,
+	type PortMode,
+	type PortRole,
+	SPEED_OPTIONS,
+	VLAN_PRESETS,
+	isBroadcastAddress,
+	isNetworkAddress,
+	parseIp,
+	validatePortIp,
 } from "@/lib/topology-types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -89,6 +92,18 @@ export default function PortContextMenu({
 		portConfig?.wifiPassword ?? "",
 	);
 	const [gatewayValue, setGatewayValue] = useState(portConfig?.gateway ?? "");
+
+	/* Sync local state when portConfig changes (e.g. live refetch, collaborator edit, DHCP auto-assign) */
+	useEffect(() => {
+		setAliasValue(portConfig?.alias ?? "");
+		setIpValue(portConfig?.ipAddress ?? "");
+		setMacValue(portConfig?.macAddress ?? "");
+		setDhcpStart(portConfig?.dhcpRangeStart ?? "");
+		setDhcpEnd(portConfig?.dhcpRangeEnd ?? "");
+		setSsidValue(portConfig?.ssid ?? "");
+		setWifiPassValue(portConfig?.wifiPassword ?? "");
+		setGatewayValue(portConfig?.gateway ?? "");
+	}, [portConfig]);
 
 	/* ── Device capabilities ── */
 	const caps =
@@ -286,8 +301,17 @@ export default function PortContextMenu({
 
 	/* ── Subnet validation for the current IP value ── */
 	const ipValidation = useMemo(() => {
-		if (!ipValue.trim() || caps.canBeGateway || caps.layer === "cloud")
+		if (!ipValue.trim()) return null;
+		if (caps.canBeGateway) {
+			// Gateway devices define the subnet, so skip subnet-mismatch check.
+			// Still validate format, network address, and broadcast address.
+			const trimmed = ipValue.trim();
+			const parsed = parseIp(trimmed);
+			if (!parsed) return { valid: false, warning: "Invalid IP/CIDR format", gatewaySubnet: null };
+			if (isNetworkAddress(parsed)) return { valid: false, warning: `${trimmed} is the network address of its subnet`, gatewaySubnet: null };
+			if (isBroadcastAddress(parsed)) return { valid: false, warning: `${trimmed} is the broadcast address of its subnet`, gatewaySubnet: null };
 			return null;
+		}
 		return validatePortIp(
 			ipValue.trim(),
 			deviceId,
@@ -862,7 +886,12 @@ export default function PortContextMenu({
 						<BackButton onClick={() => setActivePanel("main")} />
 						<div className="border-t border-(--app-border-light) my-1" />
 						<div className="px-3 py-2 space-y-2">
-							{caps.canBeGateway && (
+							{caps.layer === "cloud" && (
+								<div className="text-[10px] text-blue-400 bg-blue-400/10 rounded px-2 py-1">
+									Public/WAN IP for this Internet link. Connected routers should use this as their upstream gateway.
+								</div>
+							)}
+							{caps.canBeGateway && caps.layer !== "cloud" && (
 								<div className="text-[10px] text-amber-400 bg-amber-400/10 rounded px-2 py-1">
 									This interface defines a subnet. Connected devices should use
 									IPs within this range.
@@ -874,16 +903,20 @@ export default function PortContextMenu({
 								</div>
 							)}
 							<label className="text-[10px] text-(--app-text-dim) uppercase tracking-wider block">
-								{caps.canBeGateway
-									? "Interface IP (CIDR)"
-									: "IP Address (CIDR notation)"}
+								{caps.layer === "cloud"
+									? "Public IP (CIDR)"
+									: caps.canBeGateway
+										? "Interface IP (CIDR)"
+										: "IP Address (CIDR notation)"}
 							</label>
 							<input
 								type="text"
 								placeholder={
-									caps.canBeGateway
-										? "e.g. 192.168.1.1/24"
-										: "e.g. 192.168.1.100/24"
+									caps.layer === "cloud"
+										? "e.g. 203.0.113.1/30"
+										: caps.canBeGateway
+											? "e.g. 192.168.1.1/24"
+											: "e.g. 192.168.1.100/24"
 								}
 								value={ipValue}
 								onChange={(e) => setIpValue(e.target.value)}

@@ -749,8 +749,11 @@ export default function TopologyCanvas({
 				!!(seg.gateway || hasSameSubnetPeers || (hasDhcpServer && seg.ports.length > 1));
 			if (isViable) {
 				viableSegmentIds.add(seg.id);
-			} else if (hasIps && !hasSameSubnetPeers) {
+			} else if (hasIps && ips.length >= 2 && !hasSameSubnetPeers) {
+				// Multiple IPs that don't share a subnet → actual mismatch
 				segmentIssueById.set(seg.id, "Subnet");
+			} else if (!seg.gateway && hasIps) {
+				segmentIssueById.set(seg.id, "No GW");
 			} else if (!hasDhcpServer) {
 				segmentIssueById.set(seg.id, "No DHCP");
 			} else {
@@ -2005,8 +2008,10 @@ export default function TopologyCanvas({
 							x={deviceMenu.x}
 							y={deviceMenu.y}
 							device={dev}
+							portConfigs={portConfigs}
 							onClose={() => setDeviceMenu(null)}
 							onUpdateDevice={onUpdateDevice}
+							onUpdatePortConfig={onUpdatePortConfig}
 							onDeleteDevice={onDeleteDevice}
 						/>
 					);

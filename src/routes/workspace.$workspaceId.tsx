@@ -159,6 +159,9 @@ function WorkspacePage() {
 	}, [routeQueries]);
 
 	/* ── Invalidation helper ── */
+	const devicesRef = useRef(devices);
+	devicesRef.current = devices;
+
 	const invalidateAll = useCallback(() => {
 		void queryClient.invalidateQueries({
 			queryKey: trpc.devices.list.queryKey({ workspaceId }),
@@ -169,7 +172,9 @@ function WorkspacePage() {
 		void queryClient.invalidateQueries({
 			queryKey: trpc.annotations.list.queryKey({ workspaceId }),
 		});
-		for (const d of devices) {
+		// Use the ref so this callback always sees the latest devices list
+		// regardless of when onSuccess fires relative to re-renders.
+		for (const d of devicesRef.current) {
 			void queryClient.invalidateQueries({
 				queryKey: trpc.interfaces.list.queryKey({ deviceId: d.id }),
 			});
@@ -177,7 +182,7 @@ function WorkspacePage() {
 				queryKey: trpc.routes.list.queryKey({ deviceId: d.id }),
 			});
 		}
-	}, [queryClient, trpc, workspaceId, devices]);
+	}, [queryClient, trpc, workspaceId]);
 
 	/* ── Mutations ── */
 	const addDevice = useMutation(
@@ -323,6 +328,7 @@ function WorkspacePage() {
 					candidate.hostPort,
 					nextConnections,
 					portConfigs,
+					devices,
 				);
 				if (!ip) continue;
 

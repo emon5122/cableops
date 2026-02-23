@@ -10,6 +10,7 @@ export interface Position {
 export const DEVICE_TYPES = [
 	"switch",
 	"router",
+	"managed-router",
 	"pc",
 	"server",
 	"ip-phone",
@@ -37,6 +38,7 @@ export type DeviceType = (typeof DEVICE_TYPES)[number];
 export const DEVICE_TYPE_LABELS: Record<DeviceType, string> = {
 	switch: "Switch",
 	router: "Router",
+	"managed-router": "Managed Router",
 	pc: "PC",
 	server: "Server",
 	"ip-phone": "IP Phone",
@@ -62,6 +64,7 @@ export const DEVICE_TYPE_LABELS: Record<DeviceType, string> = {
 export const DEVICE_TYPE_DEFAULT_PORTS: Record<DeviceType, number> = {
 	switch: 24,
 	router: 8,
+	"managed-router": 12,
 	pc: 1,
 	server: 4,
 	"ip-phone": 2,
@@ -135,13 +138,26 @@ export const DEVICE_CAPABILITIES: Record<DeviceType, DeviceCapabilities> = {
 		wifiHost: true,
 		wifiClient: false,
 	},
+	"managed-router": {
+		layer: 3,
+		perPortIp: true,
+		managementIp: false,
+		vlanSupport: true,
+		natCapable: true,
+		dhcpCapable: true,
+		macPerPort: true,
+		canBeGateway: true,
+		portModeSupport: true,
+		wifiHost: false,
+		wifiClient: false,
+	},
 	firewall: {
 		layer: 3,
 		perPortIp: true,
 		managementIp: false,
 		vlanSupport: false,
 		natCapable: true,
-		dhcpCapable: false,
+		dhcpCapable: true,
 		macPerPort: true,
 		canBeGateway: true,
 		portModeSupport: false,
@@ -167,7 +183,7 @@ export const DEVICE_CAPABILITIES: Record<DeviceType, DeviceCapabilities> = {
 		managementIp: true,
 		vlanSupport: true,
 		natCapable: false,
-		dhcpCapable: false,
+		dhcpCapable: true,
 		macPerPort: true,
 		canBeGateway: false,
 		portModeSupport: true,
@@ -241,13 +257,13 @@ export const DEVICE_CAPABILITIES: Record<DeviceType, DeviceCapabilities> = {
 	},
 	cloud: {
 		layer: "cloud",
-		perPortIp: false,
-		managementIp: true,
+		perPortIp: true,
+		managementIp: false,
 		vlanSupport: false,
 		natCapable: false,
-		dhcpCapable: false,
+		dhcpCapable: true,
 		macPerPort: false,
-		canBeGateway: false,
+		canBeGateway: true,
 		portModeSupport: false,
 		wifiHost: false,
 		wifiClient: false,
@@ -310,7 +326,7 @@ export const DEVICE_CAPABILITIES: Record<DeviceType, DeviceCapabilities> = {
 		managementIp: false,
 		vlanSupport: false,
 		natCapable: true,
-		dhcpCapable: false,
+		dhcpCapable: true,
 		macPerPort: true,
 		canBeGateway: true,
 		portModeSupport: false,
@@ -430,12 +446,12 @@ export type PortRole = (typeof PORT_ROLES)[number];
 /* ── Data models (inferred from Drizzle schema) ── */
 
 import type {
-    annotations,
-    connections,
-    devices,
-    interfaces,
-    routes,
-    workspaces,
+	annotations,
+	connections,
+	devices,
+	interfaces,
+	routes,
+	workspaces,
 } from "@/db/schema";
 import type { InferSelectModel } from "drizzle-orm";
 
@@ -446,8 +462,7 @@ export type InterfaceRow = InferSelectModel<typeof interfaces>;
 export type RouteRow = InferSelectModel<typeof routes>;
 export type AnnotationRow = InferSelectModel<typeof annotations>;
 
-/** @deprecated Use InterfaceRow instead */
-export type PortConfigRow = InterfaceRow;
+
 
 /* ── Topology canvas helpers ── */
 
@@ -703,9 +718,54 @@ export function sameSubnet(a: string, b: string): boolean {
 	const pa = parseIp(a);
 	const pb = parseIp(b);
 	if (!pa || !pb) return false;
-	const cidr = Math.min(pa.cidr, pb.cidr);
+	// Use the more specific (larger) CIDR to avoid false positives where
+	// e.g. 192.168.1.100/24 and 192.168.2.100/16 would incorrectly match
+	const cidr = Math.max(pa.cidr, pb.cidr);
 	const mask = cidr > 0 ? (~0 << (32 - cidr)) >>> 0 : 0;
 	return (pa.ip & mask) >>> 0 === (pb.ip & mask) >>> 0;
+}
+
+/** Check if an IP is the network address of its subnet (e.g. 192.168.1.0/24) */
+export function isNetworkAddress(input: string | { ip: number; cidr: number; network: number; mask: number }): boolean {
+	const parsed = typeof input === "string" ? parseIp(input) : input;
+	if (!parsed) return false;
+	if (parsed.cidr >= 31) return false; // /31 and /32 are special — both addresses usable
+	return parsed.ip === parsed.network;
+}
+
+/** Check if an IP is the broadcast address of its subnet (e.g. 192.168.1.255/24) */
+export function isBroadcastAddress(input: string | { ip: number; cidr: number; network: number; mask: number }): boolean {
+	const parsed = typeof input === "string" ? parseIp(input) : input;
+	if (!parsed) return false;
+	if (parsed.cidr >= 31) return false; // /31 and /32 are special — both addresses usable
+	const broadcast = (parsed.network | ~parsed.mask) >>> 0;
+	return parsed.ip === broadcast;
+}
+
+/** Validate that a gateway IP is within the same subnet as the port's own IP */
+export function validateGatewayInSubnet(
+	portIp: string,
+	gatewayIp: string,
+): { valid: boolean; reason: string | null } {
+	if (!gatewayIp || !portIp) return { valid: true, reason: null };
+	const port = parseIp(portIp);
+	if (!port) return { valid: true, reason: null };
+
+	// Parse gateway as plain IP within the port's subnet
+	const gwPlain = gatewayIp.replace(/\/\d+$/, "");
+	const gwMatch = gwPlain.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+	if (!gwMatch) return { valid: false, reason: "Invalid gateway IP format" };
+	const gwOctets = [Number(gwMatch[1]), Number(gwMatch[2]), Number(gwMatch[3]), Number(gwMatch[4])];
+	if (gwOctets.some((o) => o > 255)) return { valid: false, reason: "Invalid gateway IP octets" };
+	const gwNum = ((gwOctets[0] << 24) | (gwOctets[1] << 16) | (gwOctets[2] << 8) | gwOctets[3]) >>> 0;
+
+	if (((gwNum & port.mask) >>> 0) !== port.network) {
+		return {
+			valid: false,
+			reason: `Gateway ${gatewayIp} is not in subnet ${ipToString(port.network)}/${port.cidr}`,
+		};
+	}
+	return { valid: true, reason: null };
 }
 
 /**
@@ -788,7 +848,10 @@ export interface NetworkIssue {
 		| "multiple_gateways"
 		| "dhcp_collision"
 		| "no_return_path"
-		| "nat_misconfigured";
+		| "nat_misconfigured"
+		| "network_address"
+		| "broadcast_address"
+		| "gateway_unreachable";
 }
 
 export interface NetworkAnalysis {
@@ -809,8 +872,8 @@ function isL2Transparent(layer: DeviceCapabilities["layer"]): boolean {
 function getPortConfig(
 	deviceId: string,
 	portNumber: number,
-	portConfigs: PortConfigRow[],
-): PortConfigRow | undefined {
+	portConfigs:InterfaceRow[],
+):InterfaceRow | undefined {
 	return portConfigs.find(
 		(pc) => pc.deviceId === deviceId && pc.portNumber === portNumber,
 	);
@@ -819,13 +882,24 @@ function getPortConfig(
 function getPortVlanId(
 	deviceId: string,
 	portNumber: number,
-	portConfigs: PortConfigRow[],
+	portConfigs:InterfaceRow[],
 ): number {
 	const pc = getPortConfig(deviceId, portNumber, portConfigs);
 	return pc?.vlan ?? 1;
 }
 
-function portCarriesVlan(pc: PortConfigRow | undefined, vlanId: number): boolean {
+function portCarriesVlan(
+	pc: InterfaceRow | undefined,
+	vlanId: number,
+	deviceType?: string,
+): boolean {
+	// Non-VLAN-aware devices implicitly carry whatever VLAN the access port assigns
+	// (the switch strips the tag before sending frames to the connected device)
+	if (deviceType) {
+		const caps = DEVICE_CAPABILITIES[deviceType as DeviceType];
+		if (caps && !caps.vlanSupport) return true;
+	}
+
 	const mode = pc?.portMode ?? "access";
 	if (mode === "trunk" || mode === "hybrid") {
 		if (pc?.vlan == null) return true;
@@ -851,7 +925,7 @@ export function getNetworkSegment(
 	portNumber: number,
 	connections: ConnectionRow[],
 	devices: DeviceRow[],
-	portConfigs: PortConfigRow[],
+	portConfigs:InterfaceRow[],
 ): NetworkSegment {
 	type QueueItem = {
 		deviceId: string;
@@ -900,73 +974,87 @@ export function getNetworkSegment(
 		if (!caps) continue;
 
 		// Check if this port is a gateway interface (L3 device with IP on this port)
-		if (caps.canBeGateway && !gateway) {
-			const pc = portConfigs.find(
-				(p) =>
-					p.deviceId === current.deviceId &&
-					p.portNumber === current.portNumber &&
-					p.ipAddress,
-			);
-			if (pc?.ipAddress) {
-				const parsed = parseIp(pc.ipAddress);
-				if (parsed) {
-					gateway = {
-						deviceId: current.deviceId,
-						portNumber: current.portNumber,
-						ip: pc.ipAddress,
-						cidr: parsed.cidr,
-						network: parsed.network,
-						mask: parsed.mask,
-					};
+		// Prefer L3 devices over cloud — if both are present, L3 (router/firewall)
+		// should be the segment gateway since cloud is the upstream WAN peer.
+		if (caps.canBeGateway) {
+			const currentIsCloud = caps.layer === "cloud";
+			const existingIsCloud = gateway
+				? devices.find((d) => d.id === gateway!.deviceId)?.deviceType === "cloud"
+				: false;
+			const shouldReplace = !gateway || (existingIsCloud && !currentIsCloud);
+
+			if (shouldReplace) {
+				const pc = portConfigs.find(
+					(p) =>
+						p.deviceId === current.deviceId &&
+						p.portNumber === current.portNumber &&
+						p.ipAddress,
+				);
+				if (pc?.ipAddress) {
+					const parsed = parseIp(pc.ipAddress);
+					if (parsed) {
+						gateway = {
+							deviceId: current.deviceId,
+							portNumber: current.portNumber,
+							ip: pc.ipAddress,
+							cidr: parsed.cidr,
+							network: parsed.network,
+							mask: parsed.mask,
+						};
+					}
 				}
 			}
 		}
 
-		// Find the connection from this specific port
-		const conn = connections.find(
+		// Find ALL connections from this specific port (port 0 / WiFi can have multiple)
+		const portConns = connections.filter(
 			(c) =>
 				(c.deviceAId === current.deviceId && c.portA === current.portNumber) ||
 				(c.deviceBId === current.deviceId && c.portB === current.portNumber),
 		);
-		if (!conn) continue;
+		if (portConns.length === 0) continue;
 
-		const peerId =
-			conn.deviceAId === current.deviceId ? conn.deviceBId : conn.deviceAId;
-		const peerPort =
-			conn.deviceAId === current.deviceId ? conn.portB : conn.portA;
 		const currentPc = getPortConfig(
 			current.deviceId,
 			current.portNumber,
 			portConfigs,
 		);
-		const peerPc = getPortConfig(peerId, peerPort, portConfigs);
 
-		// Add the peer's specific port if VLAN can traverse this link
-		if (
-			portCarriesVlan(currentPc, current.vlanId) &&
-			portCarriesVlan(peerPc, current.vlanId)
-		) {
-			tryEnqueue(queue, peerId, peerPort, current.vlanId);
-		}
+		for (const conn of portConns) {
+			const peerId =
+				conn.deviceAId === current.deviceId ? conn.deviceBId : conn.deviceAId;
+			const peerPort =
+				conn.deviceAId === current.deviceId ? conn.portB : conn.portA;
+			const peerPc = getPortConfig(peerId, peerPort, portConfigs);
 
-		// If the peer is L2-transparent, ALL its other connected ports are also
-		// part of this same segment (switch/hub bridge traffic between ports),
-		// but only for VLAN-compatible ports.
-		const peerDev = devices.find((d) => d.id === peerId);
-		if (peerDev) {
-			const peerCaps = DEVICE_CAPABILITIES[peerDev.deviceType as DeviceType];
-			if (peerCaps && isL2Transparent(peerCaps.layer)) {
-				for (const c of connections) {
-					if (c.deviceAId === peerId) {
-						const pc = getPortConfig(peerId, c.portA, portConfigs);
-						if (portCarriesVlan(pc, current.vlanId)) {
-							tryEnqueue(queue, peerId, c.portA, current.vlanId);
+			// Add the peer's specific port if VLAN can traverse this link
+			const peerDevForVlan = devices.find((d) => d.id === peerId);
+			if (
+				portCarriesVlan(currentPc, current.vlanId, dev.deviceType) &&
+				portCarriesVlan(peerPc, current.vlanId, peerDevForVlan?.deviceType)
+			) {
+				tryEnqueue(queue, peerId, peerPort, current.vlanId);
+			}
+
+			// If the peer is L2-transparent, ALL its other connected ports are also
+			// part of this same segment (switch/hub bridge traffic between ports),
+			// but only for VLAN-compatible ports.
+			const peerDev = peerDevForVlan;
+			if (peerDev) {
+				const peerCaps = DEVICE_CAPABILITIES[peerDev.deviceType as DeviceType];
+				if (peerCaps && isL2Transparent(peerCaps.layer)) {
+					for (const c of connections) {
+						if (c.deviceAId === peerId) {
+							const pc = getPortConfig(peerId, c.portA, portConfigs);
+							if (portCarriesVlan(pc, current.vlanId, peerDev.deviceType)) {
+								tryEnqueue(queue, peerId, c.portA, current.vlanId);
+							}
 						}
-					}
-					if (c.deviceBId === peerId) {
-						const pc = getPortConfig(peerId, c.portB, portConfigs);
-						if (portCarriesVlan(pc, current.vlanId)) {
-							tryEnqueue(queue, peerId, c.portB, current.vlanId);
+						if (c.deviceBId === peerId) {
+							const pc = getPortConfig(peerId, c.portB, portConfigs);
+							if (portCarriesVlan(pc, current.vlanId, peerDev.deviceType)) {
+								tryEnqueue(queue, peerId, c.portB, current.vlanId);
+							}
 						}
 					}
 				}
@@ -1006,7 +1094,7 @@ export function getNetworkSegment(
 export function discoverAllSegments(
 	devices: DeviceRow[],
 	connections: ConnectionRow[],
-	portConfigs: PortConfigRow[],
+	portConfigs:InterfaceRow[],
 ): NetworkSegment[] {
 	const visited = new Set<string>(); // "deviceId:portNumber:vlanId"
 	const segments: NetworkSegment[] = [];
@@ -1032,12 +1120,36 @@ export function discoverAllSegments(
 			for (const sp of seg.ports) {
 				const svlan = getPortVlanId(sp.deviceId, sp.portNumber, portConfigs);
 				visited.add(`${sp.deviceId}:${sp.portNumber}:${svlan}`);
+				// Also mark with the discovery VLAN so non-VLAN-aware endpoints
+				// (whose getPortVlanId returns 1) don't create phantom VLAN-1 segments
+				// when they've already been discovered via a different VLAN.
+				if (svlan !== vlanId) {
+					visited.add(`${sp.deviceId}:${sp.portNumber}:${vlanId}`);
+				}
 			}
 			segments.push(seg);
 		}
 	}
 
-	return segments;
+	// Remove phantom single-port segments whose only port also appears in a
+	// larger segment.  These arise when a non-VLAN-aware endpoint is discovered
+	// with VLAN 1 first, but later turns up in the correct VLAN segment via the
+	// connected switch access port.
+	const portOccurrences = new Map<string, number>();
+	for (const seg of segments) {
+		for (const sp of seg.ports) {
+			const k = `${sp.deviceId}:${sp.portNumber}`;
+			portOccurrences.set(k, (portOccurrences.get(k) ?? 0) + 1);
+		}
+	}
+
+	return segments.filter((seg) => {
+		if (seg.ports.length === 1) {
+			const k = `${seg.ports[0].deviceId}:${seg.ports[0].portNumber}`;
+			if ((portOccurrences.get(k) ?? 0) > 1) return false;
+		}
+		return true;
+	});
 }
 
 /**
@@ -1046,7 +1158,7 @@ export function discoverAllSegments(
 export function analyzeNetwork(
 	devices: DeviceRow[],
 	connections: ConnectionRow[],
-	portConfigs: PortConfigRow[],
+	portConfigs:InterfaceRow[],
 	routes: RouteRow[] = [],
 ): NetworkAnalysis {
 	const segments = discoverAllSegments(devices, connections, portConfigs);
@@ -1143,7 +1255,7 @@ export function analyzeNetwork(
 
 			const mgmtIpStr = mgmtIface.ipAddress.includes("/")
 				? mgmtIface.ipAddress
-				: `${mgmtIface.ipAddress}/24`;
+				: `${mgmtIface.ipAddress}/${gw.cidr}`;
 			const parsed = parseIp(mgmtIpStr);
 			if (!parsed) continue;
 
@@ -1223,6 +1335,86 @@ export function analyzeNetwork(
 			} else {
 				ips.set(plain, sp);
 			}
+		}
+	}
+
+	/* ── 3b. Network / broadcast address assignment check ── */
+	for (const seg of segments) {
+		for (const sp of seg.ports) {
+			const pc = portConfigs.find(
+				(p) =>
+					p.deviceId === sp.deviceId &&
+					p.portNumber === sp.portNumber &&
+					p.ipAddress,
+			);
+			if (!pc?.ipAddress) continue;
+
+			const dev = devices.find((d) => d.id === sp.deviceId);
+			if (isNetworkAddress(pc.ipAddress)) {
+				issues.push({
+					severity: "error",
+					deviceId: sp.deviceId,
+					portNumber: sp.portNumber,
+					message: `${dev?.name ?? "Device"} port ${sp.portNumber} uses network address ${pc.ipAddress} — this cannot be assigned to a host`,
+					type: "network_address",
+				});
+			} else if (isBroadcastAddress(pc.ipAddress)) {
+				issues.push({
+					severity: "error",
+					deviceId: sp.deviceId,
+					portNumber: sp.portNumber,
+					message: `${dev?.name ?? "Device"} port ${sp.portNumber} uses broadcast address ${pc.ipAddress} — this cannot be assigned to a host`,
+					type: "broadcast_address",
+				});
+			}
+		}
+	}
+
+	/* ── 3c. Default gateway validation ── */
+	for (const seg of segments) {
+		for (const sp of seg.ports) {
+			const pc = portConfigs.find(
+				(p) =>
+					p.deviceId === sp.deviceId &&
+					p.portNumber === sp.portNumber &&
+					p.gateway,
+			);
+			if (!pc?.gateway || !pc.ipAddress) continue;
+
+			const valResult = validateGatewayInSubnet(pc.ipAddress, pc.gateway);
+			if (!valResult.valid) {
+				const dev = devices.find((d) => d.id === sp.deviceId);
+				issues.push({
+					severity: "error",
+					deviceId: sp.deviceId,
+					portNumber: sp.portNumber,
+					message: `${dev?.name ?? "Device"} port ${sp.portNumber}: ${valResult.reason}`,
+					type: "gateway_unreachable",
+				});
+			}
+		}
+	}
+
+	/* ── 3d. Management IP duplicate check ── */
+	const mgmtIps = new Map<string, { deviceId: string; deviceName: string }>();
+	for (const dev of devices) {
+		const caps = DEVICE_CAPABILITIES[dev.deviceType as DeviceType];
+		if (!caps?.managementIp) continue;
+		const iface = portConfigs.find(
+			(pc) => pc.deviceId === dev.id && pc.portNumber === 0 && pc.ipAddress,
+		);
+		if (!iface?.ipAddress) continue;
+		const plain = iface.ipAddress.split("/")[0];
+		const existing = mgmtIps.get(plain);
+		if (existing) {
+			issues.push({
+				severity: "error",
+				deviceId: dev.id,
+				message: `Duplicate management IP ${plain}: ${existing.deviceName} and ${dev.name}`,
+				type: "duplicate_ip",
+			});
+		} else {
+			mgmtIps.set(plain, { deviceId: dev.id, deviceName: dev.name });
 		}
 	}
 
@@ -1659,7 +1851,7 @@ export function getGatewaySubnet(
 	portNumber: number,
 	devices: DeviceRow[],
 	connections: ConnectionRow[],
-	portConfigs: PortConfigRow[],
+	portConfigs:InterfaceRow[],
 ): {
 	subnet: string;
 	gatewayIp: string;
@@ -1698,7 +1890,7 @@ export function validatePortIp(
 	portNumber: number,
 	devices: DeviceRow[],
 	connections: ConnectionRow[],
-	portConfigs: PortConfigRow[],
+	portConfigs:InterfaceRow[],
 ): { valid: boolean; warning: string | null; gatewaySubnet: string | null } {
 	const parsed = parseIp(proposedIp);
 	if (!parsed)
@@ -1707,6 +1899,22 @@ export function validatePortIp(
 			warning: "Invalid IP/CIDR format",
 			gatewaySubnet: null,
 		};
+
+	/* Check for network / broadcast address using the proposed CIDR prefix */
+	if (isNetworkAddress(proposedIp)) {
+		return {
+			valid: false,
+			warning: `${proposedIp} is the network address of its subnet and cannot be assigned to a host`,
+			gatewaySubnet: null,
+		};
+	}
+	if (isBroadcastAddress(proposedIp)) {
+		return {
+			valid: false,
+			warning: `${proposedIp} is the broadcast address of its subnet and cannot be assigned to a host`,
+			gatewaySubnet: null,
+		};
+	}
 
 	const gw = getGatewaySubnet(
 		deviceId,
@@ -1755,6 +1963,7 @@ export function getNextDhcpIp(
 	hostPortNumber: number,
 	connections: ConnectionRow[],
 	portConfigs: InterfaceRow[],
+	devices: DeviceRow[] = [],
 ): string | null {
 	const hostIface = portConfigs.find(
 		(p) => p.deviceId === hostDevice.id && p.portNumber === hostPortNumber,
@@ -1790,23 +1999,46 @@ export function getNextDhcpIp(
 		if (cidr > 24) cidr = 24;
 	}
 
-	/* Collect all IPs assigned to any client connected to this host (WiFi + wired) */
-	const allConns = connections.filter(
-		(c) => c.deviceAId === hostDevice.id || c.deviceBId === hostDevice.id,
-	);
+	/* Collect all IPs in the broadcast domain (L2 segment) of this DHCP interface */
 	const assignedIps = new Set<number>();
-	for (const conn of allConns) {
-		const clientId =
-			conn.deviceAId === hostDevice.id ? conn.deviceBId : conn.deviceAId;
-		const clientPort =
-			conn.deviceAId === hostDevice.id ? conn.portB : conn.portA;
-		const pc = portConfigs.find(
-			(p) => p.deviceId === clientId && p.portNumber === clientPort,
+
+	if (devices.length > 0) {
+		// Walk the L2 segment to find ALL devices, including those behind switches
+		const seg = getNetworkSegment(
+			hostDevice.id,
+			hostPortNumber,
+			connections,
+			devices,
+			portConfigs,
 		);
-		if (pc?.ipAddress) {
-			const plain = pc.ipAddress.split("/")[0];
-			const n = parseIpPlain(plain);
-			if (n !== null) assignedIps.add(n);
+		for (const sp of seg.ports) {
+			const pc = portConfigs.find(
+				(p) => p.deviceId === sp.deviceId && p.portNumber === sp.portNumber,
+			);
+			if (pc?.ipAddress) {
+				const plain = pc.ipAddress.split("/")[0];
+				const n = parseIpPlain(plain);
+				if (n !== null) assignedIps.add(n);
+			}
+		}
+	} else {
+		// Fallback: only check directly connected devices (legacy behavior)
+		const allConns = connections.filter(
+			(c) => c.deviceAId === hostDevice.id || c.deviceBId === hostDevice.id,
+		);
+		for (const conn of allConns) {
+			const clientId =
+				conn.deviceAId === hostDevice.id ? conn.deviceBId : conn.deviceAId;
+			const clientPort =
+				conn.deviceAId === hostDevice.id ? conn.portB : conn.portA;
+			const pc = portConfigs.find(
+				(p) => p.deviceId === clientId && p.portNumber === clientPort,
+			);
+			if (pc?.ipAddress) {
+				const plain = pc.ipAddress.split("/")[0];
+				const n = parseIpPlain(plain);
+				if (n !== null) assignedIps.add(n);
+			}
 		}
 	}
 

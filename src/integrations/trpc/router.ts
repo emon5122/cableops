@@ -5,6 +5,7 @@ import {
 	type DeviceRow,
 	getNetworkSegment,
 	type InterfaceRow,
+	ipToString,
 	parseIp,
 } from "@/lib/topology-types";
 import { workspaceSnapshotSchema } from "@/lib/workspace-snapshot-schema";
@@ -935,7 +936,12 @@ const interfacesRouter = {
 
 			/* ── IP validation ── */
 			if (input.ipAddress) {
-				if (!isValidIp(input.ipAddress)) {
+				if (!input.ipAddress.includes("/")) {
+					throw new Error(
+						"IP address must include CIDR notation (e.g. 192.168.1.1/24)",
+					);
+				}
+				if (!isValidCidr(input.ipAddress)) {
 					throw new Error(`Invalid IP address format: ${input.ipAddress}`);
 				}
 
@@ -1013,8 +1019,24 @@ const interfacesRouter = {
 			}
 
 			/* ── Gateway IP validation ── */
-			if (input.gateway && !isValidIp(input.gateway)) {
-				throw new Error("Invalid gateway IP format");
+			if (input.gateway) {
+				if (!isValidIp(input.gateway)) {
+					throw new Error("Invalid gateway IP format");
+				}
+				// Validate gateway is in the same subnet as the port's IP
+				const effectiveIp = input.ipAddress ?? match?.ipAddress ?? null;
+				if (effectiveIp) {
+					const portParsed = parseIp(effectiveIp);
+					if (portParsed) {
+						const gwPlain = stripCidr(input.gateway);
+						const gwNum = parseIpv4(gwPlain);
+						if (gwNum !== null && ((gwNum & portParsed.mask) >>> 0) !== portParsed.network) {
+							throw new Error(
+								`Gateway ${input.gateway} is not in subnet ${ipToString(portParsed.network)}/${portParsed.cidr}`,
+							);
+						}
+					}
+				}
 			}
 
 			/* ── DHCP range validation ── */

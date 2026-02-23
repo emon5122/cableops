@@ -4,6 +4,8 @@ import { z } from "zod";
 const DEVICE_TYPE_ALIASES: Record<string, (typeof DEVICE_TYPES)[number]> = {
 	ap: "access-point",
 	accesspoint: "access-point",
+	"managedrouter": "managed-router",
+	"mikrotik": "managed-router",
 };
 
 function normalizeDeviceType(raw: string): (typeof DEVICE_TYPES)[number] | string {
