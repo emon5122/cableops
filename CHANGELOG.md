@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/emon5122/cableops/compare/v1.4.1...v1.5.0) (2026-02-23)
+
+
+### Features
+
+* add WiFi P0 button for devices with physical ports ([85e67f7](https://github.com/emon5122/cableops/commit/85e67f7d43c12a187437e6f3a601b1f6893acde6))
+
 ## [1.4.1](https://github.com/emon5122/cableops/compare/v1.4.0...v1.4.1) (2026-02-23)
 
 
