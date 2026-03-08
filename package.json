@@ -50,7 +50,7 @@
     "zod": "^4.1.11"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.2.4",
+    "@biomejs/biome": "2.4.6",
     "@tanstack/devtools-vite": "^0.3.11",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.15.6",
