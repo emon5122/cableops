@@ -8,11 +8,11 @@ import {
 	ipToString,
 	parseIp,
 } from "@/lib/topology-types";
+import { buildWorkspaceSnapshot } from "@/server/workspace-snapshot";
 import { collectLinkedWorkspaces } from "@/lib/linked-network";
 import {
 	planSnapshotLinkImport,
 	type SkippedLink,
-	snapshotLinkFromView,
 } from "@/lib/snapshot-links";
 import {
 	resolveWorkspaceAccess,
@@ -39,6 +39,7 @@ import {
 import { TRPCError, type TRPCRouterRecord } from "@trpc/server";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
+import { apiTokensRouter } from "./api-tokens-router";
 import { createTRPCRouter, publicProcedure } from "./init";
 
 /* ── IP Validation Helpers (server-side) ── */
@@ -686,76 +687,9 @@ const workspacesRouter = {
 
 	exportSnapshot: publicProcedure
 		.input(z.object({ workspaceId: z.string() }))
-		.query(async ({ input, ctx }) => {
-			const wsRows = await db
-				.select()
-				.from(schema.workspaces)
-				.where(eq(schema.workspaces.id, input.workspaceId));
-			const workspace = wsRows[0];
-			if (!workspace) throw new Error("Workspace not found");
-
-			const devices = await db
-				.select()
-				.from(schema.devices)
-				.where(eq(schema.devices.workspaceId, input.workspaceId));
-			const deviceIds = devices.map((d) => d.id);
-
-			const connections = await db
-				.select()
-				.from(schema.connections)
-				.where(eq(schema.connections.workspaceId, input.workspaceId));
-
-			const annotations = await db
-				.select()
-				.from(schema.annotations)
-				.where(eq(schema.annotations.workspaceId, input.workspaceId));
-
-			const interfaces =
-				deviceIds.length > 0
-					? await db
-							.select()
-							.from(schema.interfaces)
-							.where(inArray(schema.interfaces.deviceId, deviceIds))
-					: [];
-
-			const routes =
-				deviceIds.length > 0
-					? await db
-							.select()
-							.from(schema.routes)
-							.where(inArray(schema.routes.deviceId, deviceIds))
-					: [];
-
-			/* Cross-links: only those whose far workspace the caller may read,
-			   so an export never reveals a workspace the caller cannot see. */
-			const links = await linksTouchingWorkspaces([input.workspaceId]);
-			const { accessMap, deviceNames } = await farSideNames(
-				links,
-				input.workspaceId,
-				ctx.userId,
-			);
-			const workspaceLinks: SnapshotWorkspaceLink[] = [];
-			for (const l of links) {
-				const view = viewLink(l, input.workspaceId, accessMap, deviceNames);
-				const entry = view ? snapshotLinkFromView(view) : null;
-				if (entry) workspaceLinks.push(entry);
-			}
-
-			return {
-				version: 1,
-				exportedAt: new Date().toISOString(),
-				workspace: {
-					id: workspace.id,
-					name: workspace.name,
-				},
-				devices,
-				interfaces,
-				connections,
-				routes,
-				annotations,
-				workspaceLinks,
-			};
-		}),
+		.query(({ input, ctx }) =>
+			buildWorkspaceSnapshot(db, input.workspaceId, ctx.userId),
+		),
 
 	importSnapshot: publicProcedure
 		.input(
@@ -2047,6 +1981,7 @@ export const trpcRouter = createTRPCRouter({
 	routes: routesRouter,
 	annotations: annotationsRouter,
 	workspaceLinks: workspaceLinksRouter,
+	apiTokens: apiTokensRouter,
 });
 
 export type TRPCRouter = typeof trpcRouter;

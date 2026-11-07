@@ -63,6 +63,36 @@ export const verification = pgTable("verification", {
 	updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+/**
+ * Personal API tokens for agents / CLI (Authorization: Bearer cops_…).
+ * Only the SHA-256 hash is stored; the plaintext is shown once at creation.
+ * A token acts as its user, capped by `scopes` ("read" | "write:import").
+ */
+export const apiTokens = pgTable(
+	"api_tokens",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		/** Non-secret lookup prefix, e.g. "cops_AbCd1234" */
+		prefix: text("prefix").notNull(),
+		/** SHA-256 hex digest of the full token */
+		tokenHash: text("token_hash").notNull(),
+		scopes: text("scopes").array().notNull(),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+		lastUsedAt: timestamp("last_used_at"),
+		expiresAt: timestamp("expires_at"),
+		revokedAt: timestamp("revoked_at"),
+	},
+	(table) => ({
+		userIdx: index("api_tokens_user_idx").on(table.userId),
+		prefixIdx: index("api_tokens_prefix_idx").on(table.prefix),
+		hashUnique: uniqueIndex("api_tokens_token_hash_uq").on(table.tokenHash),
+	}),
+);
+
 /* ═══════════════════════════════════════════════════
    CableOps tables
    ═══════════════════════════════════════════════════ */

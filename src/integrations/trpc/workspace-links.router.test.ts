@@ -23,7 +23,11 @@ const ALICE = "user-alice";
 const BOB = "user-bob";
 
 function as(userId: string | null) {
-	return trpcRouter.createCaller({ session: null, userId });
+	return trpcRouter.createCaller({
+		session: null,
+		userId,
+		hasBearerToken: false,
+	});
 }
 
 let home: string;

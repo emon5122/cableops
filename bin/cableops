@@ -1,0 +1,3 @@
+#!/usr/bin/env node
+// Shim so `bin/cableops` works as an executable whatever module type Node assumes.
+import("./cableops.mjs").then((cli) => cli.main());

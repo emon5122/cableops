@@ -7,6 +7,8 @@ export async function createTRPCContext(request: Request) {
 	return {
 		session,
 		userId: session?.user?.id ?? null,
+		/** tRPC is cookie-session only; flag requests that carry an API token */
+		hasBearerToken: /^Bearer\s/i.test(request.headers.get("authorization") ?? ""),
 	};
 }
 

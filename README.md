@@ -22,6 +22,7 @@ Design, visualize, and document your physical network infrastructure with an int
 - **Segment & Reachability Analysis** — L2/L3 segment discovery, duplicate IP checks, subnet mismatch detection, gateway analysis, and forwarding diagnostics
 - **Authentication** — Built-in user auth via better-auth with session management
 - **Real-Time Persistence** — All changes saved instantly to PostgreSQL via tRPC
+- **Agent Access** — Scoped API tokens, a remote MCP endpoint (`/api/mcp`) and a `cableops` CLI (see [docs/agents.md](docs/agents.md))
 
 ## Architecture Summary
 
@@ -153,6 +154,24 @@ docker compose up -d
 
 Migrations run automatically on container start — no manual steps needed.
 
+## Agents, MCP & CLI
+
+Agents read CableOps with a personal API token instead of a browser cookie.
+Create one under **API tokens** (`/settings/tokens`). It is shown once and
+only its hash is stored.
+
+- **MCP endpoint**: `https://cableops.nexisltd.com/api/mcp` (streamable HTTP, `Authorization: Bearer cops_…`). Tools: `list_workspaces`, `get_snapshot`, `analyze`, `find_path`.
+- **CLI**: `bin/cableops` (Node ≥ 20, no dependencies), reads `CABLEOPS_TOKEN` and `CABLEOPS_URL` (default `https://cableops.nexisltd.com`):
+
+```bash
+export CABLEOPS_TOKEN=cops_…
+bin/cableops workspaces
+bin/cableops get "Home Lab" > home-lab.json
+bin/cableops analyze <workspace-id>
+```
+
+Client config examples, scopes and limits: [docs/agents.md](docs/agents.md).
+
 ## Getting Started
 
 ### Prerequisites
@@ -206,6 +225,7 @@ The app will be available at [http://localhost:3000](http://localhost:3000).
 | `pnpm format` | Format with Biome |
 | `pnpm check` | Lint + format check |
 | `pnpm check-types` | TypeScript type-check (`tsc --noEmit`) |
+| `pnpm test` | Unit + integration tests (Vitest, in-process Postgres via PGlite) |
 | `pnpm db:generate` | Generate Drizzle migrations |
 | `pnpm db:migrate` | Run pending migrations |
 | `pnpm db:push` | Push schema directly (dev) |

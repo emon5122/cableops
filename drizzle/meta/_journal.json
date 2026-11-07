@@ -43,6 +43,13 @@
       "when": 1794078122449,
       "tag": "0005_workspace_links",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794082943631,
+      "tag": "0006_api_tokens",
+      "breakpoints": true
     }
   ]
 }
