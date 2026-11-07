@@ -52,6 +52,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.2.4",
+    "@electric-sql/pglite": "^0.3.16",
     "@tanstack/devtools-vite": "^0.3.11",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.15.6",

@@ -191,7 +191,7 @@
             "required": ["deviceId", "port"],
             "properties": {
               "deviceId": { "type": "string" },
-              "port": { "type": "integer", "minimum": 0 }
+              "port": { "type": "integer", "minimum": 1 }
             },
             "additionalProperties": true
           },
@@ -203,7 +203,7 @@
               "workspaceName": { "type": ["string", "null"] },
               "deviceId": { "type": "string" },
               "deviceName": { "type": ["string", "null"] },
-              "port": { "type": "integer", "minimum": 0 }
+              "port": { "type": "integer", "minimum": 1 }
             },
             "additionalProperties": true
           }
