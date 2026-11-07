@@ -46,6 +46,24 @@ describe("resolveConfig", () => {
 		).toBe("http://localhost:3000/api/mcp");
 		expect(() => resolveConfig({})).toThrow(/CABLEOPS_TOKEN/);
 	});
+
+	it("refuses plain http except for localhost", () => {
+		const t = "cops_x";
+		expect(() =>
+			resolveConfig({ CABLEOPS_TOKEN: t, CABLEOPS_URL: "http://cableops.example.com" }),
+		).toThrow(/https/);
+		expect(() =>
+			resolveConfig({ CABLEOPS_TOKEN: t, CABLEOPS_URL: "http://localhost.evil.com" }),
+		).toThrow(/https/);
+		expect(() => resolveConfig({ CABLEOPS_TOKEN: t, CABLEOPS_URL: "ftp://x" })).toThrow(/https/);
+		expect(() => resolveConfig({ CABLEOPS_TOKEN: t, CABLEOPS_URL: "nonsense" })).toThrow(/valid URL/);
+		expect(
+			resolveConfig({ CABLEOPS_TOKEN: t, CABLEOPS_URL: "http://127.0.0.1:3000" }).endpoint,
+		).toBe("http://127.0.0.1:3000/api/mcp");
+		expect(
+			resolveConfig({ CABLEOPS_TOKEN: t, CABLEOPS_URL: "https://x.example" }).endpoint,
+		).toBe("https://x.example/api/mcp");
+	});
 });
 
 /* ── End to end: CLI → real MCP handler on an in-process Postgres ── */
@@ -94,7 +112,7 @@ async function cli(argv: string[], env: Record<string, string | undefined>) {
 }
 
 describe("cableops CLI against the MCP endpoint", () => {
-	const env = () => ({ CABLEOPS_TOKEN: token, CABLEOPS_URL: "http://test" });
+	const env = () => ({ CABLEOPS_TOKEN: token, CABLEOPS_URL: "https://test.example" });
 
 	it("lists workspaces", async () => {
 		const r = await cli(["workspaces"], env());
@@ -124,7 +142,7 @@ describe("cableops CLI against the MCP endpoint", () => {
 
 	it("reports 401 without ever printing the token", async () => {
 		const bad = `cops_${"Z".repeat(40)}`;
-		const r = await cli(["workspaces"], { CABLEOPS_TOKEN: bad, CABLEOPS_URL: "http://test" });
+		const r = await cli(["workspaces"], { CABLEOPS_TOKEN: bad, CABLEOPS_URL: "https://test.example" });
 		expect(r.code).toBe(3);
 		expect(r.err).toContain("Unauthorized (401)");
 		expect(r.out + r.err).not.toContain(bad);

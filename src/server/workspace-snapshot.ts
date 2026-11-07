@@ -99,10 +99,19 @@ async function exportableLinks(
 	return out;
 }
 
+export interface SnapshotOptions {
+	/**
+	 * Blank credential fields (interface WiFi passwords). Used for the MCP /
+	 * API-token path so agents never receive secrets; the UI export keeps them.
+	 */
+	redactCredentials?: boolean;
+}
+
 export async function buildWorkspaceSnapshot(
 	db: Db,
 	workspaceId: string,
 	userId: string | null,
+	options: SnapshotOptions = {},
 ) {
 	const wsRows = await db
 		.select()
@@ -153,7 +162,9 @@ export async function buildWorkspaceSnapshot(
 			name: workspace.name,
 		},
 		devices,
-		interfaces,
+		interfaces: options.redactCredentials
+			? interfaces.map((i) => ({ ...i, wifiPassword: null }))
+			: interfaces,
 		connections,
 		routes,
 		annotations,

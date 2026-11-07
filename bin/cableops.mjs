@@ -67,6 +67,19 @@ export function resolveConfig(env) {
 		throw new CliError("CABLEOPS_TOKEN is not set (create a token at /settings/tokens)", 2);
 	}
 	const base = (env.CABLEOPS_URL?.trim() || DEFAULT_URL).replace(/\/+$/, "");
+	let url;
+	try {
+		url = new URL(base);
+	} catch {
+		throw new CliError(`CABLEOPS_URL is not a valid URL: ${base}`, 2);
+	}
+	const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+	if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) {
+		throw new CliError(
+			"CABLEOPS_URL must be https:// (plain http is only allowed for localhost/127.0.0.1) so the token is never sent in clear text",
+			2,
+		);
+	}
 	return { token, endpoint: `${base}/api/mcp` };
 }
 

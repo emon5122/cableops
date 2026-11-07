@@ -123,6 +123,13 @@ beforeAll(async () => {
 			ipAddress: "192.168.1.10/24",
 			gateway: "192.168.1.1",
 		},
+		{
+			id: "i4",
+			deviceId: "pc2",
+			portNumber: 2,
+			ssid: "LabNet",
+			wifiPassword: "hunter2-wifi",
+		},
 	]);
 
 	aliceToken = (
@@ -231,6 +238,20 @@ describe("MCP endpoint", () => {
 		]);
 	});
 
+	it("get_snapshot and analyze never expose WiFi passwords", async () => {
+		const snap = await callTool("get_snapshot", { workspaceId: "ws-alice" });
+		const text = JSON.stringify(snap);
+		expect(text).not.toContain("hunter2-wifi");
+		const wifi = payload(snap).interfaces.find(
+			(i: { id: string }) => i.id === "i4",
+		);
+		expect(wifi.wifiPassword).toBeNull();
+		expect(wifi.ssid).toBe("LabNet");
+		expect(
+			JSON.stringify(await callTool("analyze", { workspaceId: "ws-alice" })),
+		).not.toContain("hunter2-wifi");
+	});
+
 	it("get_snapshot returns the export JSON for a readable workspace", async () => {
 		const snap = payload(
 			await callTool("get_snapshot", { workspaceId: "ws-alice" }),
@@ -239,7 +260,7 @@ describe("MCP endpoint", () => {
 		expect(snap.workspace).toEqual({ id: "ws-alice", name: "Alice Home" });
 		expect(snap.devices).toHaveLength(5);
 		expect(snap.connections).toHaveLength(3);
-		expect(snap.interfaces).toHaveLength(3);
+		expect(snap.interfaces).toHaveLength(4);
 		expect(Object.keys(snap).sort()).toEqual([
 			"annotations",
 			"connections",

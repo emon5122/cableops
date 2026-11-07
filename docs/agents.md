@@ -85,7 +85,7 @@ MCP endpoint.
 
 ```bash
 export CABLEOPS_TOKEN=cops_…                         # required
-export CABLEOPS_URL=https://cableops.nexisltd.com    # optional, this is the default
+export CABLEOPS_URL=https://cableops.nexisltd.com    # optional, this is the default   # https only (http allowed for localhost)
 
 bin/cableops workspaces            # id <TAB> permission <TAB> name
 bin/cableops workspaces --json

@@ -164,7 +164,7 @@ Create one under **API tokens** (`/settings/tokens`). It is shown once and
 only its hash is stored.
 
 - **MCP endpoint**: `https://cableops.nexisltd.com/api/mcp` (streamable HTTP, `Authorization: Bearer cops_…`). Tools: `list_workspaces`, `get_snapshot`, `analyze`, `find_path`.
-- **CLI**: `bin/cableops` (Node ≥ 20, no dependencies), reads `CABLEOPS_TOKEN` and `CABLEOPS_URL` (default `https://cableops.nexisltd.com`):
+- **CLI**: `bin/cableops` (Node ≥ 20, no dependencies), reads `CABLEOPS_TOKEN` and `CABLEOPS_URL` (default `https://cableops.nexisltd.com`): The URL must be `https://` (plain `http://` only for localhost/127.0.0.1).
 
 ```bash
 export CABLEOPS_TOKEN=cops_…

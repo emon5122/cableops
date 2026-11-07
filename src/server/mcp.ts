@@ -69,7 +69,10 @@ async function readableSnapshot(
 			`Workspace "${workspaceId}" not found or not readable with this token (call list_workspaces)`,
 		);
 	}
-	return buildWorkspaceSnapshot(db, workspaceId, principal.userId);
+	// Agents get the topology, never stored credentials (WiFi passwords)
+	return buildWorkspaceSnapshot(db, workspaceId, principal.userId, {
+		redactCredentials: true,
+	});
 }
 
 function asParamsError(fn: () => CallToolResult): CallToolResult {
