@@ -56,9 +56,10 @@ beforeAll(async () => {
 		name: string,
 		deviceType: string,
 		portCount: number,
+		owner = ALICE,
 	) =>
 		(
-			await as(ALICE).devices.create({
+			await as(owner).devices.create({
 				workspaceId,
 				name,
 				deviceType,
@@ -70,7 +71,7 @@ beforeAll(async () => {
 	homeRouter = await dev(home, "Home router", "managed-router", 4);
 	homeHa = await dev(home, "Home Assistant", "server", 2);
 	vpsHost = await dev(vps, "VPS", "server", 2);
-	officeFw = await dev(office, "Office firewall", "firewall", 8);
+	officeFw = await dev(office, "Office firewall", "firewall", 8, BOB);
 
 	await as(ALICE).connections.create({
 		workspaceId: home,

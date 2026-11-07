@@ -154,6 +154,82 @@ async function loadWorkspaceAccess(
 	return result;
 }
 
+type AccessLevel = "read" | "edit" | "owner";
+
+const ACCESS_DENIED: Record<AccessLevel, string> = {
+	read: "You cannot view this workspace",
+	edit: "You need edit access to this workspace",
+	owner: "Only the workspace owner can do this",
+};
+
+/**
+ * Throw unless the caller has `level` access to the workspace: "read" for
+ * owners, members and ownerless drafts; "edit" for owners, collaborators and
+ * drafts; "owner" for the owner (or anyone on an ownerless draft).
+ */
+async function requireWorkspaceAccess(
+	workspaceId: string,
+	userId: string | null,
+	level: AccessLevel,
+): Promise<WorkspaceWithAccess> {
+	const entry = (await loadWorkspaceAccess([workspaceId], userId)).get(
+		workspaceId,
+	);
+	if (!entry) {
+		throw new TRPCError({ code: "NOT_FOUND", message: "Workspace not found" });
+	}
+	const { access } = entry;
+	const allowed =
+		level === "read"
+			? access.canRead
+			: level === "edit"
+				? access.canEdit
+				: access.permission === "owner";
+	if (!allowed) {
+		throw new TRPCError({ code: "FORBIDDEN", message: ACCESS_DENIED[level] });
+	}
+	return entry;
+}
+
+/** The device, after checking the caller may edit its workspace. */
+async function requireDeviceEdit(
+	deviceId: string,
+	userId: string | null,
+): Promise<typeof schema.devices.$inferSelect> {
+	const rows = await db
+		.select()
+		.from(schema.devices)
+		.where(eq(schema.devices.id, deviceId));
+	const device = rows[0];
+	if (!device) {
+		throw new TRPCError({ code: "NOT_FOUND", message: "Device not found" });
+	}
+	await requireWorkspaceAccess(device.workspaceId, userId, "edit");
+	return device;
+}
+
+/** The annotation, after checking the caller may edit its workspace. */
+async function requireAnnotationEdit(
+	annotationId: string,
+	userId: string | null,
+): Promise<typeof schema.annotations.$inferSelect> {
+	const rows = await db
+		.select()
+		.from(schema.annotations)
+		.where(eq(schema.annotations.id, annotationId));
+	const annotation = rows[0];
+	if (!annotation) {
+		throw new TRPCError({ code: "NOT_FOUND", message: "Annotation not found" });
+	}
+	await requireWorkspaceAccess(annotation.workspaceId, userId, "edit");
+	return annotation;
+}
+
+/** True when an update payload sets at least one column. */
+function hasValues(fields: Record<string, unknown>): boolean {
+	return Object.values(fields).some((v) => v !== undefined);
+}
+
 function throwLinkError(err: LinkValidationError): never {
 	throw new TRPCError({ code: err.code, message: err.message });
 }
@@ -338,14 +414,16 @@ async function importSnapshotLinks(
 /* ── Workspaces ── */
 
 const workspacesRouter = {
+	/** Workspaces owned by `ownerId`; callers only ever see their own. */
 	list: publicProcedure
 		.input(z.object({ ownerId: z.string() }))
-		.query(({ input }) =>
-			db
+		.query(({ input, ctx }) => {
+			if (!ctx.userId || input.ownerId !== ctx.userId) return [];
+			return db
 				.select()
 				.from(schema.workspaces)
-				.where(eq(schema.workspaces.ownerId, input.ownerId)),
-		),
+				.where(eq(schema.workspaces.ownerId, input.ownerId));
+		}),
 
 	get: publicProcedure
 		.input(z.object({ id: z.string() }))
@@ -393,7 +471,13 @@ const workspacesRouter = {
 
 	create: publicProcedure
 		.input(z.object({ name: z.string().min(1), ownerId: z.string().optional() }))
-		.mutation(async ({ input }) => {
+		.mutation(async ({ input, ctx }) => {
+			if (input.ownerId && input.ownerId !== ctx.userId) {
+				throw new TRPCError({
+					code: "FORBIDDEN",
+					message: "You can only create workspaces for yourself",
+				});
+			}
 			const id = crypto.randomUUID();
 			const rows = await db
 				.insert(schema.workspaces)
@@ -514,7 +598,12 @@ const workspacesRouter = {
 	/** List members of a workspace */
 	listMembers: publicProcedure
 		.input(z.object({ workspaceId: z.string() }))
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
+			/* Member names and emails are for the owner and members only */
+			const entry = (
+				await loadWorkspaceAccess([input.workspaceId], ctx.userId)
+			).get(input.workspaceId);
+			if (!entry?.access.canRead) return [];
 			const members = await db
 				.select({
 					id: schema.workspaceMembers.id,
@@ -613,7 +702,8 @@ const workspacesRouter = {
 
 	update: publicProcedure
 		.input(z.object({ id: z.string(), name: z.string().min(1) }))
-		.mutation(async ({ input }) => {
+		.mutation(async ({ input, ctx }) => {
+			await requireWorkspaceAccess(input.id, ctx.userId, "edit");
 			const rows = await db
 				.update(schema.workspaces)
 				.set({ name: input.name })
@@ -624,9 +714,12 @@ const workspacesRouter = {
 
 	delete: publicProcedure
 		.input(z.object({ id: z.string() }))
-		.mutation(({ input }) =>
-			db.delete(schema.workspaces).where(eq(schema.workspaces.id, input.id)),
-		),
+		.mutation(async ({ input, ctx }) => {
+			await requireWorkspaceAccess(input.id, ctx.userId, "owner");
+			return db
+				.delete(schema.workspaces)
+				.where(eq(schema.workspaces.id, input.id));
+		}),
 
 	createShare: publicProcedure
 		.input(z.object({ workspaceId: z.string() }))
@@ -687,9 +780,10 @@ const workspacesRouter = {
 
 	exportSnapshot: publicProcedure
 		.input(z.object({ workspaceId: z.string() }))
-		.query(({ input, ctx }) =>
-			buildWorkspaceSnapshot(db, input.workspaceId, ctx.userId),
-		),
+		.query(async ({ input, ctx }) => {
+			await requireWorkspaceAccess(input.workspaceId, ctx.userId, "read");
+			return buildWorkspaceSnapshot(db, input.workspaceId, ctx.userId);
+		}),
 
 	importSnapshot: publicProcedure
 		.input(
@@ -699,12 +793,7 @@ const workspacesRouter = {
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
-			const wsRows = await db
-				.select()
-				.from(schema.workspaces)
-				.where(eq(schema.workspaces.id, input.workspaceId));
-			const ws = wsRows[0];
-			if (!ws) throw new Error("Workspace not found");
+			await requireWorkspaceAccess(input.workspaceId, ctx.userId, "edit");
 
 			const currentDevices = await db
 				.select()
@@ -883,7 +972,8 @@ const devicesRouter = {
 				ipForwarding: z.boolean().optional(),
 			}),
 		)
-		.mutation(async ({ input }) => {
+		.mutation(async ({ input, ctx }) => {
+			await requireWorkspaceAccess(input.workspaceId, ctx.userId, "edit");
 			const id = crypto.randomUUID();
 			const rows = await db
 				.insert(schema.devices)
@@ -917,8 +1007,10 @@ const devicesRouter = {
 				ipForwarding: z.boolean().optional(),
 			}),
 		)
-		.mutation(async ({ input }) => {
+		.mutation(async ({ input, ctx }) => {
+			const device = await requireDeviceEdit(input.id, ctx.userId);
 			const { id, ...fields } = input;
+			if (!hasValues(fields)) return device;
 			const rows = await db
 				.update(schema.devices)
 				.set(fields)
@@ -935,18 +1027,20 @@ const devicesRouter = {
 				positionY: z.number().int(),
 			}),
 		)
-		.mutation(({ input }) =>
-			db
+		.mutation(async ({ input, ctx }) => {
+			await requireDeviceEdit(input.id, ctx.userId);
+			return db
 				.update(schema.devices)
 				.set({ positionX: input.positionX, positionY: input.positionY })
-				.where(eq(schema.devices.id, input.id)),
-		),
+				.where(eq(schema.devices.id, input.id));
+		}),
 
 	delete: publicProcedure
 		.input(z.object({ id: z.string() }))
-		.mutation(({ input }) =>
-			db.delete(schema.devices).where(eq(schema.devices.id, input.id)),
-		),
+		.mutation(async ({ input, ctx }) => {
+			await requireDeviceEdit(input.id, ctx.userId);
+			return db.delete(schema.devices).where(eq(schema.devices.id, input.id));
+		}),
 } satisfies TRPCRouterRecord;
 
 /* ── Connections ── */
@@ -973,7 +1067,9 @@ const connectionsRouter = {
 				connectionType: z.enum(["wired", "wifi"]).default("wired"),
 			}),
 		)
-		.mutation(async ({ input }) => {
+		.mutation(async ({ input, ctx }) => {
+			await requireWorkspaceAccess(input.workspaceId, ctx.userId, "edit");
+
 			/* Prevent self-connection */
 			if (input.deviceAId === input.deviceBId) {
 				throw new Error("Cannot connect a device to itself");
@@ -1079,9 +1175,23 @@ const connectionsRouter = {
 
 	delete: publicProcedure
 		.input(z.object({ id: z.string() }))
-		.mutation(({ input }) =>
-			db.delete(schema.connections).where(eq(schema.connections.id, input.id)),
-		),
+		.mutation(async ({ input, ctx }) => {
+			const rows = await db
+				.select({ workspaceId: schema.connections.workspaceId })
+				.from(schema.connections)
+				.where(eq(schema.connections.id, input.id));
+			const conn = rows[0];
+			if (!conn) {
+				throw new TRPCError({
+					code: "NOT_FOUND",
+					message: "Connection not found",
+				});
+			}
+			await requireWorkspaceAccess(conn.workspaceId, ctx.userId, "edit");
+			return db
+				.delete(schema.connections)
+				.where(eq(schema.connections.id, input.id));
+		}),
 } satisfies TRPCRouterRecord;
 
 /* ── Interfaces (replaces port configs) ── */
@@ -1134,13 +1244,8 @@ const interfacesRouter = {
 				gateway: z.string().nullable().optional(),
 			}),
 		)
-		.mutation(async ({ input }) => {
-			const deviceRows = await db
-				.select()
-				.from(schema.devices)
-				.where(eq(schema.devices.id, input.deviceId));
-			const device = deviceRows[0];
-			if (!device) throw new Error("Device not found");
+		.mutation(async ({ input, ctx }) => {
+			const device = await requireDeviceEdit(input.deviceId, ctx.userId);
 			if (input.portNumber < 0 || input.portNumber > device.portCount) {
 				throw new Error(
 					`Port ${input.portNumber} does not exist on device ${device.name}`,
@@ -1418,14 +1523,17 @@ const routesRouter = {
 				metric: z.number().int().min(0).default(100),
 			}),
 		)
-		.mutation(async ({ input }) => {
-			const deviceRows = await db
-				.select()
-				.from(schema.devices)
-				.where(eq(schema.devices.id, input.deviceId));
-			const device = deviceRows[0];
-			if (!device) {
-				throw new Error("Route must reference a valid device");
+		.mutation(async ({ input, ctx }) => {
+			const device = await requireDeviceEdit(input.deviceId, ctx.userId);
+			if (input.id) {
+				/* Only a route of this (editable) device may be rewritten */
+				const existing = await db
+					.select({ deviceId: schema.routes.deviceId })
+					.from(schema.routes)
+					.where(eq(schema.routes.id, input.id));
+				if (existing[0]?.deviceId !== device.id) {
+					throw new TRPCError({ code: "NOT_FOUND", message: "Route not found" });
+				}
 			}
 
 			if (!isValidCidr(input.destination)) {
@@ -1488,9 +1596,18 @@ const routesRouter = {
 
 	delete: publicProcedure
 		.input(z.object({ id: z.string() }))
-		.mutation(({ input }) =>
-			db.delete(schema.routes).where(eq(schema.routes.id, input.id)),
-		),
+		.mutation(async ({ input, ctx }) => {
+			const rows = await db
+				.select({ deviceId: schema.routes.deviceId })
+				.from(schema.routes)
+				.where(eq(schema.routes.id, input.id));
+			const route = rows[0];
+			if (!route) {
+				throw new TRPCError({ code: "NOT_FOUND", message: "Route not found" });
+			}
+			await requireDeviceEdit(route.deviceId, ctx.userId);
+			return db.delete(schema.routes).where(eq(schema.routes.id, input.id));
+		}),
 } satisfies TRPCRouterRecord;
 
 /* ── Annotations (barriers, rooms, labels) ── */
@@ -1518,7 +1635,8 @@ const annotationsRouter = {
 				color: z.string().default("#334155"),
 			}),
 		)
-		.mutation(async ({ input }) => {
+		.mutation(async ({ input, ctx }) => {
+			await requireWorkspaceAccess(input.workspaceId, ctx.userId, "edit");
 			const id = crypto.randomUUID();
 			const rows = await db
 				.insert(schema.annotations)
@@ -1551,8 +1669,10 @@ const annotationsRouter = {
 				color: z.string().optional(),
 			}),
 		)
-		.mutation(async ({ input }) => {
+		.mutation(async ({ input, ctx }) => {
+			const annotation = await requireAnnotationEdit(input.id, ctx.userId);
 			const { id, ...fields } = input;
+			if (!hasValues(fields)) return annotation;
 			const rows = await db
 				.update(schema.annotations)
 				.set(fields)
@@ -1563,9 +1683,12 @@ const annotationsRouter = {
 
 	delete: publicProcedure
 		.input(z.object({ id: z.string() }))
-		.mutation(({ input }) =>
-			db.delete(schema.annotations).where(eq(schema.annotations.id, input.id)),
-		),
+		.mutation(async ({ input, ctx }) => {
+			await requireAnnotationEdit(input.id, ctx.userId);
+			return db
+				.delete(schema.annotations)
+				.where(eq(schema.annotations.id, input.id));
+		}),
 } satisfies TRPCRouterRecord;
 
 /* ── Cross-workspace links ── */
