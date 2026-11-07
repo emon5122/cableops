@@ -9,9 +9,11 @@ import {
 	parseIp,
 } from "@/lib/topology-types";
 import { workspaceSnapshotSchema } from "@/lib/workspace-snapshot-schema";
+import { buildWorkspaceSnapshot } from "@/server/workspace-snapshot";
 import type { TRPCRouterRecord } from "@trpc/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
+import { apiTokensRouter } from "./api-tokens-router";
 import { createTRPCRouter, publicProcedure } from "./init";
 
 /* ── IP Validation Helpers (server-side) ── */
@@ -444,60 +446,7 @@ const workspacesRouter = {
 
 	exportSnapshot: publicProcedure
 		.input(z.object({ workspaceId: z.string() }))
-		.query(async ({ input }) => {
-			const wsRows = await db
-				.select()
-				.from(schema.workspaces)
-				.where(eq(schema.workspaces.id, input.workspaceId));
-			const workspace = wsRows[0];
-			if (!workspace) throw new Error("Workspace not found");
-
-			const devices = await db
-				.select()
-				.from(schema.devices)
-				.where(eq(schema.devices.workspaceId, input.workspaceId));
-			const deviceIds = devices.map((d) => d.id);
-
-			const connections = await db
-				.select()
-				.from(schema.connections)
-				.where(eq(schema.connections.workspaceId, input.workspaceId));
-
-			const annotations = await db
-				.select()
-				.from(schema.annotations)
-				.where(eq(schema.annotations.workspaceId, input.workspaceId));
-
-			const interfaces =
-				deviceIds.length > 0
-					? await db
-							.select()
-							.from(schema.interfaces)
-							.where(inArray(schema.interfaces.deviceId, deviceIds))
-					: [];
-
-			const routes =
-				deviceIds.length > 0
-					? await db
-							.select()
-							.from(schema.routes)
-							.where(inArray(schema.routes.deviceId, deviceIds))
-					: [];
-
-			return {
-				version: 1,
-				exportedAt: new Date().toISOString(),
-				workspace: {
-					id: workspace.id,
-					name: workspace.name,
-				},
-				devices,
-				interfaces,
-				connections,
-				routes,
-				annotations,
-			};
-		}),
+		.query(({ input }) => buildWorkspaceSnapshot(db, input.workspaceId)),
 
 	importSnapshot: publicProcedure
 		.input(
@@ -1358,6 +1307,7 @@ export const trpcRouter = createTRPCRouter({
 	interfaces: interfacesRouter,
 	routes: routesRouter,
 	annotations: annotationsRouter,
+	apiTokens: apiTokensRouter,
 });
 
 export type TRPCRouter = typeof trpcRouter;

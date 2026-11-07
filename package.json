@@ -2,6 +2,9 @@
   "name": "cableops",
   "private": true,
   "type": "module",
+  "bin": {
+    "cableops": "bin/cableops"
+  },
   "imports": {
     "@/*": "./src/*"
   },
@@ -13,6 +16,7 @@
     "lint": "biome lint",
     "check": "biome check",
     "check-types": "tsc --noEmit",
+    "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
@@ -20,6 +24,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@t3-oss/env-core": "^0.13.8",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-query": "^5.66.5",
@@ -51,6 +56,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.2.4",
+    "@electric-sql/pglite": "0.5.15",
     "@tanstack/devtools-vite": "^0.3.11",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.15.6",
@@ -61,7 +67,8 @@
     "tsx": "^4.0.0",
     "typescript": "^5.7.2",
     "vite": "^7.1.7",
-    "vite-tsconfig-paths": "^5.1.4"
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "5.1.0"
   },
   "version": "1.5.2"
 }

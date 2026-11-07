@@ -12,8 +12,10 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkspaceWorkspaceIdRouteImport } from './routes/workspace.$workspaceId'
 import { Route as ShareShareTokenRouteImport } from './routes/share.$shareToken'
+import { Route as SettingsTokensRouteImport } from './routes/settings.tokens'
 import { Route as AuthSignUpRouteImport } from './routes/auth/sign-up'
 import { Route as AuthSignInRouteImport } from './routes/auth/sign-in'
+import { Route as ApiMcpRouteImport } from './routes/api/mcp'
 import { Route as ApiTrpcSplatRouteImport } from './routes/api.trpc.$'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
@@ -32,6 +34,11 @@ const ShareShareTokenRoute = ShareShareTokenRouteImport.update({
   path: '/share/$shareToken',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsTokensRoute = SettingsTokensRouteImport.update({
+  id: '/settings/tokens',
+  path: '/settings/tokens',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthSignUpRoute = AuthSignUpRouteImport.update({
   id: '/auth/sign-up',
   path: '/auth/sign-up',
@@ -40,6 +47,11 @@ const AuthSignUpRoute = AuthSignUpRouteImport.update({
 const AuthSignInRoute = AuthSignInRouteImport.update({
   id: '/auth/sign-in',
   path: '/auth/sign-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMcpRoute = ApiMcpRouteImport.update({
+  id: '/api/mcp',
+  path: '/api/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiTrpcSplatRoute = ApiTrpcSplatRouteImport.update({
@@ -55,8 +67,10 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/auth/sign-up': typeof AuthSignUpRoute
+  '/settings/tokens': typeof SettingsTokensRoute
   '/share/$shareToken': typeof ShareShareTokenRoute
   '/workspace/$workspaceId': typeof WorkspaceWorkspaceIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -64,8 +78,10 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/auth/sign-up': typeof AuthSignUpRoute
+  '/settings/tokens': typeof SettingsTokensRoute
   '/share/$shareToken': typeof ShareShareTokenRoute
   '/workspace/$workspaceId': typeof WorkspaceWorkspaceIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -74,8 +90,10 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/auth/sign-up': typeof AuthSignUpRoute
+  '/settings/tokens': typeof SettingsTokensRoute
   '/share/$shareToken': typeof ShareShareTokenRoute
   '/workspace/$workspaceId': typeof WorkspaceWorkspaceIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -85,8 +103,10 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/api/mcp'
     | '/auth/sign-in'
     | '/auth/sign-up'
+    | '/settings/tokens'
     | '/share/$shareToken'
     | '/workspace/$workspaceId'
     | '/api/auth/$'
@@ -94,8 +114,10 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/api/mcp'
     | '/auth/sign-in'
     | '/auth/sign-up'
+    | '/settings/tokens'
     | '/share/$shareToken'
     | '/workspace/$workspaceId'
     | '/api/auth/$'
@@ -103,8 +125,10 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/api/mcp'
     | '/auth/sign-in'
     | '/auth/sign-up'
+    | '/settings/tokens'
     | '/share/$shareToken'
     | '/workspace/$workspaceId'
     | '/api/auth/$'
@@ -113,8 +137,10 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiMcpRoute: typeof ApiMcpRoute
   AuthSignInRoute: typeof AuthSignInRoute
   AuthSignUpRoute: typeof AuthSignUpRoute
+  SettingsTokensRoute: typeof SettingsTokensRoute
   ShareShareTokenRoute: typeof ShareShareTokenRoute
   WorkspaceWorkspaceIdRoute: typeof WorkspaceWorkspaceIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -144,6 +170,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShareShareTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/tokens': {
+      id: '/settings/tokens'
+      path: '/settings/tokens'
+      fullPath: '/settings/tokens'
+      preLoaderRoute: typeof SettingsTokensRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/auth/sign-up': {
       id: '/auth/sign-up'
       path: '/auth/sign-up'
@@ -156,6 +189,13 @@ declare module '@tanstack/react-router' {
       path: '/auth/sign-in'
       fullPath: '/auth/sign-in'
       preLoaderRoute: typeof AuthSignInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mcp': {
+      id: '/api/mcp'
+      path: '/api/mcp'
+      fullPath: '/api/mcp'
+      preLoaderRoute: typeof ApiMcpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/trpc/$': {
@@ -177,8 +217,10 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiMcpRoute: ApiMcpRoute,
   AuthSignInRoute: AuthSignInRoute,
   AuthSignUpRoute: AuthSignUpRoute,
+  SettingsTokensRoute: SettingsTokensRoute,
   ShareShareTokenRoute: ShareShareTokenRoute,
   WorkspaceWorkspaceIdRoute: WorkspaceWorkspaceIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

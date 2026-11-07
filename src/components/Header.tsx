@@ -3,7 +3,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { authClient } from "@/lib/auth-client";
 import { Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
-import { Cable, Moon, Power, Sun, User } from "lucide-react";
+import { Cable, KeyRound, Moon, Power, Sun, User } from "lucide-react";
 
 declare const __APP_VERSION__: string;
 
@@ -58,6 +58,18 @@ export default function Header() {
 								{session.user.name ?? session.user.email}
 							</span>
 						</div>
+						<Button
+							size="sm"
+							variant="ghost"
+							className="text-(--app-text-muted) hover:text-(--app-text) hover:bg-(--app-surface-hover) rounded-lg gap-1.5"
+							title="API tokens for agents and the CLI"
+							asChild
+						>
+							<Link to="/settings/tokens">
+								<KeyRound size={14} />
+								<span className="text-xs hidden lg:inline">API tokens</span>
+							</Link>
+						</Button>
 						<div className="w-px h-5 bg-(--app-border) hidden md:block" />
 						<Button
 							size="sm"
