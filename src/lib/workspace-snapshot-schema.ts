@@ -1,14 +1,17 @@
-import { DEVICE_TYPES } from "@/lib/topology-types";
 import { z } from "zod";
+import { DEVICE_TYPES } from "@/lib/topology-types";
+import { WORKSPACE_LINK_TYPES } from "@/lib/workspace-links";
 
 const DEVICE_TYPE_ALIASES: Record<string, (typeof DEVICE_TYPES)[number]> = {
 	ap: "access-point",
 	accesspoint: "access-point",
-	"managedrouter": "managed-router",
-	"mikrotik": "managed-router",
+	managedrouter: "managed-router",
+	mikrotik: "managed-router",
 };
 
-function normalizeDeviceType(raw: string): (typeof DEVICE_TYPES)[number] | string {
+function normalizeDeviceType(
+	raw: string,
+): (typeof DEVICE_TYPES)[number] | string {
 	const lowered = raw.trim().toLowerCase();
 	if (lowered in DEVICE_TYPE_ALIASES) {
 		return DEVICE_TYPE_ALIASES[lowered];
@@ -30,6 +33,35 @@ const snapshotAnnotationKindSchema = z.preprocess(
 	(value) => (typeof value === "string" ? value.toLowerCase().trim() : value),
 	z.enum(["rect", "label"]).default("rect"),
 );
+
+const snapshotLinkTypeSchema = z.preprocess(
+	(value) => (typeof value === "string" ? value.toLowerCase().trim() : value),
+	z.enum(WORKSPACE_LINK_TYPES).default("wired"),
+);
+
+/**
+ * A cross-workspace link, seen from the snapshot's workspace: `local` is a
+ * device in this snapshot, `remote` a device in another workspace.
+ */
+export const snapshotWorkspaceLinkSchema = z.object({
+	id: z.string(),
+	linkType: snapshotLinkTypeSchema.optional(),
+	label: z.string().nullable().optional(),
+	speed: z.string().nullable().optional(),
+	local: z.object({
+		deviceId: z.string(),
+		port: z.number().int().min(0),
+	}),
+	remote: z.object({
+		workspaceId: z.string(),
+		workspaceName: z.string().nullable().optional(),
+		deviceId: z.string(),
+		deviceName: z.string().nullable().optional(),
+		port: z.number().int().min(0),
+	}),
+});
+
+export type SnapshotWorkspaceLink = z.infer<typeof snapshotWorkspaceLinkSchema>;
 
 export const workspaceSnapshotSchema = z.object({
 	version: z.literal(1),
@@ -115,6 +147,8 @@ export const workspaceSnapshotSchema = z.object({
 			createdAt: z.string().optional(),
 		}),
 	),
+	/** Optional: older snapshots have no cross-workspace links. */
+	workspaceLinks: z.array(snapshotWorkspaceLinkSchema).optional(),
 });
 
 export type WorkspaceSnapshot = z.infer<typeof workspaceSnapshotSchema>;

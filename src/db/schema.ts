@@ -2,6 +2,7 @@ import {
 	boolean,
 	index,
 	integer,
+	pgEnum,
 	pgTable,
 	text,
 	timestamp,
@@ -281,5 +282,65 @@ export const annotations = pgTable(
 	},
 	(table) => ({
 		workspaceIdx: index("annotations_workspace_idx").on(table.workspaceId),
+	}),
+);
+
+/**
+ * Cross-workspace links — explicit links between a port in one workspace and
+ * a port in another (site-to-site VPN, WAN circuit, tunnel, cable between
+ * buildings modelled as separate workspaces). A port used by a cross-link
+ * counts as connected: it cannot also carry a local connection or a second
+ * cross-link (port 0, the virtual WiFi interface, is shared as for
+ * connections). Deleting either device or workspace removes the link.
+ */
+export const workspaceLinkTypeEnum = pgEnum("workspace_link_type", [
+	"wired",
+	"wifi",
+	"vpn",
+	"tunnel",
+	"wan",
+]);
+
+export const workspaceLinks = pgTable(
+	"workspace_links",
+	{
+		id: text("id").primaryKey(),
+		workspaceAId: text("workspace_a_id")
+			.notNull()
+			.references(() => workspaces.id, { onDelete: "cascade" }),
+		deviceAId: text("device_a_id")
+			.notNull()
+			.references(() => devices.id, { onDelete: "cascade" }),
+		portA: integer("port_a").notNull(),
+		workspaceBId: text("workspace_b_id")
+			.notNull()
+			.references(() => workspaces.id, { onDelete: "cascade" }),
+		deviceBId: text("device_b_id")
+			.notNull()
+			.references(() => devices.id, { onDelete: "cascade" }),
+		portB: integer("port_b").notNull(),
+		linkType: workspaceLinkTypeEnum("link_type").notNull().default("wired"),
+		label: text("label"),
+		speed: text("speed"),
+		createdBy: text("created_by").references(() => user.id, {
+			onDelete: "set null",
+		}),
+		createdAt: timestamp("created_at").defaultNow(),
+	},
+	(table) => ({
+		workspaceAIdx: index("workspace_links_workspace_a_idx").on(
+			table.workspaceAId,
+		),
+		workspaceBIdx: index("workspace_links_workspace_b_idx").on(
+			table.workspaceBId,
+		),
+		deviceAPortIdx: index("workspace_links_device_a_port_idx").on(
+			table.deviceAId,
+			table.portA,
+		),
+		deviceBPortIdx: index("workspace_links_device_b_port_idx").on(
+			table.deviceBId,
+			table.portB,
+		),
 	}),
 );

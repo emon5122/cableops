@@ -170,6 +170,46 @@
         },
         "additionalProperties": true
       }
+    },
+    "workspaceLinks": {
+      "type": "array",
+      "description": "Optional cross-workspace links. local is a device in this snapshot; remote is a device in another existing workspace.",
+      "items": {
+        "type": "object",
+        "required": ["id", "local", "remote"],
+        "properties": {
+          "id": { "type": "string" },
+          "linkType": {
+            "type": "string",
+            "enum": ["wired", "wifi", "vpn", "tunnel", "wan"],
+            "default": "wired"
+          },
+          "label": { "type": ["string", "null"] },
+          "speed": { "type": ["string", "null"] },
+          "local": {
+            "type": "object",
+            "required": ["deviceId", "port"],
+            "properties": {
+              "deviceId": { "type": "string" },
+              "port": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": true
+          },
+          "remote": {
+            "type": "object",
+            "required": ["workspaceId", "deviceId", "port"],
+            "properties": {
+              "workspaceId": { "type": "string" },
+              "workspaceName": { "type": ["string", "null"] },
+              "deviceId": { "type": "string" },
+              "deviceName": { "type": ["string", "null"] },
+              "port": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      }
     }
   },
   "additionalProperties": true

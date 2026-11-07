@@ -13,6 +13,7 @@
     "lint": "biome lint",
     "check": "biome check",
     "check-types": "tsc --noEmit",
+    "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
@@ -61,7 +62,8 @@
     "tsx": "^4.0.0",
     "typescript": "^5.7.2",
     "vite": "^7.1.7",
-    "vite-tsconfig-paths": "^5.1.4"
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3.2.4"
   },
   "version": "1.5.2"
 }
