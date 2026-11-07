@@ -1639,7 +1639,7 @@ const annotationsRouter = {
 const linkEndInput = z.object({
 	workspaceId: z.string(),
 	deviceId: z.string(),
-	port: z.number().int().min(0),
+	port: z.number().int().min(1),
 });
 
 /** Most workspaces the linked-network walk will merge. */

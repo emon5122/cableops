@@ -179,6 +179,15 @@ describe("validateNewLink permissions", () => {
 				ctx(vpsHost, ownerVps),
 			)?.message,
 		).toMatch(/Port 9 does not exist/);
+		/* port 0 is the shared virtual WiFi interface, never a link end */
+		expect(
+			validateNewLink(
+				{ workspaceId: home.id, deviceId: homeRouter.id, port: 0 },
+				{ workspaceId: vps.id, deviceId: vpsHost.id, port: 1 },
+				ctx(homeRouter, ownerHome),
+				ctx(vpsHost, ownerVps),
+			)?.message,
+		).toMatch(/physical port/);
 	});
 });
 

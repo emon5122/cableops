@@ -1,9 +1,11 @@
 import TopologyCanvas from "@/components/topology/TopologyCanvas";
 import ConnectionsTable from "@/components/workspace/ConnectionsTable";
 import NetworkInsights from "@/components/workspace/NetworkInsights";
+import WorkspaceLinkDialog from "@/components/workspace/WorkspaceLinkDialog";
 import WorkspaceSidebar from "@/components/workspace/WorkspaceSidebar";
 import { useTRPC } from "@/integrations/trpc/react";
 import { authClient } from "@/lib/auth-client";
+import { buildUnionNetwork } from "@/lib/linked-network";
 import type {
     ConnectionRow,
     DeviceType,
@@ -16,6 +18,11 @@ import {
     getNextDhcpIp,
     isPortConnected,
 } from "@/lib/topology-types";
+import {
+    buildLinkedPortMap,
+    linkedPortKey,
+    type WorkspaceLinkView,
+} from "@/lib/workspace-links";
 import { safeParseWorkspaceSnapshot } from "@/lib/workspace-snapshot-schema";
 import {
     useMutation,
@@ -23,7 +30,7 @@ import {
     useQuery,
     useQueryClient,
 } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import {
     Cable,
@@ -35,6 +42,7 @@ import {
     Eye,
     Lightbulb,
     Link2,
+    Map as MapIcon,
     Menu,
     Network,
     Pencil,
@@ -51,13 +59,27 @@ import {
 import { useCallback, useMemo, useRef, useState } from "react";
 
 export const Route = createFileRoute("/workspace/$workspaceId")({
-	component: WorkspacePage,
+	/* ?focus=<deviceId> scrolls to and selects a device (cross-link jumps) */
+	validateSearch: (search: Record<string, unknown>): { focus?: string } =>
+		typeof search.focus === "string" && search.focus
+			? { focus: search.focus }
+			: {},
+	component: WorkspaceRoute,
 });
+
+/* Remount per workspace so selection/dialog state never leaks across a
+   cross-link jump between workspaces. */
+function WorkspaceRoute() {
+	const { workspaceId } = Route.useParams();
+	return <WorkspacePage key={workspaceId} />;
+}
 
 type ViewTab = "topology" | "connections" | "insights";
 
 function WorkspacePage() {
 	const { workspaceId } = Route.useParams();
+	const { focus: focusDeviceId } = Route.useSearch();
+	const navigate = useNavigate();
 	const { data: session } = authClient.useSession();
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
@@ -83,6 +105,12 @@ function WorkspacePage() {
 	const [sharePopoverOpen, setSharePopoverOpen] = useState(false);
 	const [shareCopied, setShareCopied] = useState(false);
 	const [managePanelOpen, setManagePanelOpen] = useState(false);
+	const [linkDialogPort, setLinkDialogPort] = useState<{
+		deviceId: string;
+		portNumber: number;
+	} | null>(null);
+	const [includeLinkedSites, setIncludeLinkedSites] = useState(false);
+	const [importNotice, setImportNotice] = useState<string | null>(null);
 
 	/* ── Permission query ── */
 	const permissionQuery = useQuery({
@@ -120,9 +148,42 @@ function WorkspacePage() {
 		refetchOnWindowFocus: true,
 	});
 
+	const crossLinksQuery = useQuery({
+		...trpc.workspaceLinks.list.queryOptions({ workspaceId }),
+		refetchInterval: liveRefetchInterval,
+		refetchIntervalInBackground: true,
+		refetchOnWindowFocus: true,
+	});
+
 	const devices = devicesQuery.data ?? [];
 	const connections = connectionsQuery.data ?? [];
 	const annotations = annotationsQuery.data ?? [];
+	const crossLinks = useMemo(
+		() => buildLinkedPortMap(crossLinksQuery.data ?? []),
+		[crossLinksQuery.data],
+	);
+	const isPortCrossLinked = useCallback(
+		(deviceId: string, portNumber: number) =>
+			crossLinks.has(linkedPortKey(deviceId, portNumber)),
+		[crossLinks],
+	);
+
+	/* ── Union of linked workspaces (Insights → "Include linked sites") ── */
+	const linkedNetworkQuery = useQuery({
+		...trpc.workspaceLinks.linkedNetwork.queryOptions({ workspaceId }),
+		enabled: includeLinkedSites && activeTab === "insights",
+		refetchInterval: includeLinkedSites ? liveRefetchInterval : false,
+	});
+	const linkedUnion = useMemo(
+		() =>
+			linkedNetworkQuery.data
+				? buildUnionNetwork(
+						linkedNetworkQuery.data.parts,
+						linkedNetworkQuery.data.links,
+					)
+				: null,
+		[linkedNetworkQuery.data],
+	);
 
 	/* ── Interfaces (per-port config including IP, DHCP, WiFi, NAT) ── */
 	const interfaceQueries = useQueries({
@@ -247,7 +308,47 @@ function WorkspacePage() {
 		}),
 	);
 	const importSnapshot = useMutation(
-		trpc.workspaces.importSnapshot.mutationOptions({ onSuccess: invalidateAll }),
+		trpc.workspaces.importSnapshot.mutationOptions({
+			onSuccess: (result) => {
+				invalidateAll();
+				void queryClient.invalidateQueries({
+					queryKey: trpc.workspaceLinks.list.queryKey({ workspaceId }),
+				});
+				const skipped = result.linksSkipped ?? [];
+				if (result.linksImported > 0 || skipped.length > 0) {
+					const parts = [`${result.linksImported} cross-workspace link(s) restored`];
+					if (skipped.length > 0) {
+						parts.push(
+							`${skipped.length} skipped: ${skipped
+								.map((s) => `${s.label ?? "link"} (${s.reason})`)
+								.join("; ")}`,
+						);
+					}
+					setImportNotice(parts.join(", "));
+				}
+			},
+		}),
+	);
+	const deleteCrossLink = useMutation(
+		trpc.workspaceLinks.delete.mutationOptions({
+			onSuccess: () => {
+				void queryClient.invalidateQueries({
+					queryKey: trpc.workspaceLinks.list.queryKey({ workspaceId }),
+				});
+			},
+		}),
+	);
+
+	const openCrossLink = useCallback(
+		(link: WorkspaceLinkView) => {
+			if (link.far.locked) return;
+			void navigate({
+				to: "/workspace/$workspaceId",
+				params: { workspaceId: link.far.workspaceId },
+				search: { focus: link.far.deviceId },
+			});
+		},
+		[navigate],
 	);
 
 	/* ── Members & Shares queries (for manage panel) ── */
@@ -356,6 +457,8 @@ function WorkspacePage() {
 		(deviceId: string, portNumber: number) => {
 			if (!canEdit) return;
 			if (isPortConnected(deviceId, portNumber, connections)) return;
+			/* A port carried by a cross-workspace link counts as connected */
+			if (isPortCrossLinked(deviceId, portNumber)) return;
 
 			if (!selectedPort) {
 				setSelectedPort({ deviceId, portNumber });
@@ -489,6 +592,7 @@ function WorkspacePage() {
 			workspaceId,
 			devices,
 			tryAssignDhcpToClient,
+			isPortCrossLinked,
 		],
 	);
 
@@ -797,6 +901,18 @@ function WorkspacePage() {
 							</span>
 						)}
 
+						{/* Site map: all workspaces and their cross-links */}
+						{session?.user && (
+							<Link
+								to="/sites"
+								className="p-1.5 lg:px-2 lg:py-1 text-xs rounded-md text-(--app-text-muted) hover:text-white hover:bg-(--app-surface-hover) flex items-center gap-1 transition-colors"
+								title="Site map: your workspaces and the links between them"
+							>
+								<MapIcon size={13} />
+								<span className="hidden xl:inline">Sites</span>
+							</Link>
+						)}
+
 						{/* Sign-in prompt for anonymous users */}
 						{!session?.user && (
 							<Link
@@ -944,6 +1060,20 @@ function WorkspacePage() {
 					</div>
 				</div>
 
+				{importNotice && (
+					<div className="flex items-start gap-2 px-3 lg:px-4 py-1.5 text-[11px] bg-violet-500/10 text-violet-300 border-b border-violet-500/20">
+						<span className="flex-1">{importNotice}</span>
+						<button
+							type="button"
+							className="shrink-0 p-0.5 hover:text-white"
+							onClick={() => setImportNotice(null)}
+							aria-label="Dismiss"
+						>
+							<X size={12} />
+						</button>
+					</div>
+				)}
+
 				{/* Content */}
 				<AnimatePresence mode="wait" initial={false}>
 					<motion.div
@@ -994,6 +1124,18 @@ function WorkspacePage() {
 								updateAnnotation.mutate({ id, ...fields });
 							}}
 							onDeleteAnnotation={(id) => { if (!canEdit) return; deleteAnnotation.mutate({ id }); }}
+							crossLinks={crossLinks}
+							onOpenCrossLink={openCrossLink}
+							onLinkPortToWorkspace={
+								canEdit && session?.user
+									? (deviceId, portNumber) =>
+											setLinkDialogPort({ deviceId, portNumber })
+									: undefined
+							}
+							onRemoveCrossLink={
+								canEdit ? (id) => deleteCrossLink.mutate({ id }) : undefined
+							}
+							focusDeviceId={focusDeviceId ?? null}
 							/>
 						) : activeTab === "connections" ? (
 							<div className="flex-1 h-full overflow-auto bg-(--app-bg) p-3 lg:p-4">
@@ -1009,15 +1151,51 @@ function WorkspacePage() {
 							</div>
 						) : (
 							<NetworkInsights
-								devices={devices}
-								connections={connections}
-								portConfigs={portConfigs}
-								routes={routes}
+								devices={linkedUnion?.devices ?? devices}
+								connections={linkedUnion?.connections ?? connections}
+								portConfigs={linkedUnion?.interfaces ?? portConfigs}
+								routes={linkedUnion?.routes ?? routes}
+								workspaceOf={linkedUnion?.workspaceOf}
+								linkedSites={
+									(crossLinksQuery.data?.length ?? 0) > 0 || includeLinkedSites
+										? {
+												enabled: includeLinkedSites,
+												loading: includeLinkedSites && !linkedUnion,
+												workspaceCount:
+													linkedNetworkQuery.data?.parts.length ?? 1,
+												lockedCount: linkedNetworkQuery.data?.lockedCount ?? 0,
+												onToggle: () => setIncludeLinkedSites((v) => !v),
+											}
+										: undefined
+								}
 							/>
 						)}
 					</motion.div>
 				</AnimatePresence>
 			</div>
+
+			{/* ── Link a port to another workspace ── */}
+			{linkDialogPort &&
+				(() => {
+					const dev = devices.find((d) => d.id === linkDialogPort.deviceId);
+					if (!dev) return null;
+					return (
+						<WorkspaceLinkDialog
+							workspaceId={workspaceId}
+							source={{
+								deviceId: dev.id,
+								deviceName: dev.name,
+								port: linkDialogPort.portNumber,
+							}}
+							onClose={() => setLinkDialogPort(null)}
+							onCreated={() => {
+								void queryClient.invalidateQueries({
+									queryKey: trpc.workspaceLinks.list.queryKey({ workspaceId }),
+								});
+							}}
+						/>
+					);
+				})()}
 
 			{/* ── Manage Panel (owner-only slide-out) ── */}
 			<AnimatePresence>

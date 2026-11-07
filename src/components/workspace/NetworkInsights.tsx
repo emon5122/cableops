@@ -22,6 +22,7 @@ import {
 	Globe,
 	Info,
 	Layers,
+	Link2,
 	Network,
 	Radio,
 	Search,
@@ -35,6 +36,18 @@ interface NetworkInsightsProps {
 	connections: ConnectionRow[];
 	portConfigs: InterfaceRow[];
 	routes?: RouteRow[];
+	/** deviceId → workspace, when the data spans linked workspaces. */
+	workspaceOf?: Map<string, { id: string; name: string }>;
+	/** Toggle for analysing the union of cross-linked workspaces. */
+	linkedSites?: {
+		enabled: boolean;
+		loading: boolean;
+		/** Workspaces in the union (including this one) when enabled. */
+		workspaceCount: number;
+		/** Linked workspaces left out because the viewer cannot read them. */
+		lockedCount: number;
+		onToggle: () => void;
+	};
 }
 
 type InsightTab = "network" | "diagnostics";
@@ -131,9 +144,11 @@ interface PingResult {
 function IssueRow({
 	issue,
 	devices,
+	workspaceName,
 }: {
 	issue: NetworkIssue;
 	devices: DeviceRow[];
+	workspaceName?: string;
 }) {
 	const dev = devices.find((d) => d.id === issue.deviceId);
 	const color =
@@ -157,7 +172,10 @@ function IssueRow({
 			<div className="flex-1 min-w-0">
 				<span>{issue.message}</span>
 				{dev && (
-					<span className="ml-1.5 text-[9px] opacity-60">[{dev.name}]</span>
+					<span className="ml-1.5 text-[9px] opacity-60">
+						[{workspaceName ? `${workspaceName} · ` : ""}
+						{dev.name}]
+					</span>
 				)}
 			</div>
 			<span className="text-[8px] uppercase tracking-wider opacity-50 shrink-0">
@@ -172,7 +190,17 @@ export default function NetworkInsights({
 	connections,
 	portConfigs,
 	routes = [],
+	workspaceOf,
+	linkedSites,
 }: NetworkInsightsProps) {
+	/* "Home / " prefix for device labels when the data spans workspaces */
+	const wsPrefix = useCallback(
+		(deviceId: string) => {
+			const ws = workspaceOf?.get(deviceId);
+			return ws ? `${ws.name} / ` : "";
+		},
+		[workspaceOf],
+	);
 	const [tab, setTab] = useState<InsightTab>("network");
 
 	/* ── Network tab state ── */
@@ -262,11 +290,11 @@ export default function NetworkInsights({
 				const dev = devices.find((d) => d.id === pc.deviceId);
 				return {
 					...pc,
-					deviceName: dev?.name ?? "Unknown",
+					deviceName: `${wsPrefix(pc.deviceId)}${dev?.name ?? "Unknown"}`,
 					deviceColor: dev?.color ?? "#888",
 				};
 			});
-	}, [portConfigs, devices]);
+	}, [portConfigs, devices, wsPrefix]);
 
 	/* ── Ping simulation ── */
 	const runPing = useCallback(() => {
@@ -422,7 +450,33 @@ export default function NetworkInsights({
 						{t.label}
 					</button>
 				))}
+				{linkedSites && (
+					<button
+						type="button"
+						className={`ml-auto px-3 py-1.5 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 border ${
+							linkedSites.enabled
+								? "bg-violet-500/15 text-violet-300 border-violet-500/30"
+								: "text-(--app-text-muted) border-(--app-border) hover:text-white hover:bg-(--app-surface)"
+						}`}
+						onClick={linkedSites.onToggle}
+						title="Analyse this workspace together with every workspace it is linked to"
+					>
+						<Link2 size={13} />
+						{linkedSites.enabled
+							? linkedSites.loading
+								? "Linked sites…"
+								: `Linked sites (${linkedSites.workspaceCount})`
+							: "Include linked sites"}
+					</button>
+				)}
 			</div>
+			{linkedSites?.enabled && linkedSites.lockedCount > 0 && (
+				<p className="text-[11px] text-amber-400 mb-3">
+					{linkedSites.lockedCount} linked workspace
+					{linkedSites.lockedCount === 1 ? " is" : "s are"} left out because
+					you cannot view {linkedSites.lockedCount === 1 ? "it" : "them"}.
+				</p>
+			)}
 
 			{/* ═══════════ NETWORK MAP TAB ═══════════ */}
 			{tab === "network" && (
@@ -435,13 +489,28 @@ export default function NetworkInsights({
 							</h3>
 							<div className="space-y-1.5 max-h-64 overflow-y-auto">
 								{errors.map((issue, idx) => (
-									<IssueRow key={`e-${idx}`} issue={issue} devices={devices} />
+									<IssueRow
+										key={`e-${idx}`}
+										issue={issue}
+										devices={devices}
+										workspaceName={workspaceOf?.get(issue.deviceId)?.name}
+									/>
 								))}
 								{warnings.map((issue, idx) => (
-									<IssueRow key={`w-${idx}`} issue={issue} devices={devices} />
+									<IssueRow
+										key={`w-${idx}`}
+										issue={issue}
+										devices={devices}
+										workspaceName={workspaceOf?.get(issue.deviceId)?.name}
+									/>
 								))}
 								{infos.map((issue, idx) => (
-									<IssueRow key={`i-${idx}`} issue={issue} devices={devices} />
+									<IssueRow
+										key={`i-${idx}`}
+										issue={issue}
+										devices={devices}
+										workspaceName={workspaceOf?.get(issue.deviceId)?.name}
+									/>
 								))}
 							</div>
 						</section>
@@ -910,6 +979,7 @@ export default function NetworkInsights({
 											<option value="">Select device…</option>
 											{devices.map((d) => (
 												<option key={d.id} value={d.id}>
+													{wsPrefix(d.id)}
 													{d.name} (
 													{DEVICE_TYPE_LABELS[
 														d.deviceType as keyof typeof DEVICE_TYPE_LABELS
@@ -939,6 +1009,7 @@ export default function NetworkInsights({
 														.filter((d) => d.id !== traceFrom)
 														.map((d) => (
 															<option key={d.id} value={d.id}>
+																{wsPrefix(d.id)}
 																{d.name} (
 																{DEVICE_TYPE_LABELS[
 																	d.deviceType as keyof typeof DEVICE_TYPE_LABELS

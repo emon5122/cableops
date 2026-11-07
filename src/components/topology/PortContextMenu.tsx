@@ -16,6 +16,11 @@ import {
 	validateGatewayInSubnet,
 	validatePortIp,
 } from "@/lib/topology-types";
+import {
+	WORKSPACE_LINK_TYPE_LABELS,
+	type WorkspaceLinkView,
+} from "@/lib/workspace-links";
+import { ExternalLink, Link2, Unlink } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface PortContextMenuProps {
@@ -50,6 +55,14 @@ interface PortContextMenuProps {
 		gateway?: string | null;
 	}) => void;
 	onDisconnect: (connectionId: string) => void;
+	/** Cross-workspace link on this port, if any. */
+	crossLink?: WorkspaceLinkView | null;
+	/** Start linking this port to another workspace (editors only). */
+	onLinkToWorkspace?: () => void;
+	/** Jump to the far side of `crossLink`. */
+	onOpenCrossLink?: (link: WorkspaceLinkView) => void;
+	/** Remove `crossLink` (editors only). */
+	onRemoveCrossLink?: (linkId: string) => void;
 }
 
 type PanelType =
@@ -79,6 +92,10 @@ export default function PortContextMenu({
 	onClose,
 	onUpdatePortConfig,
 	onDisconnect,
+	crossLink = null,
+	onLinkToWorkspace,
+	onOpenCrossLink,
+	onRemoveCrossLink,
 }: PortContextMenuProps) {
 	const menuRef = useRef<HTMLDivElement>(null);
 	const [activePanel, setActivePanel] = useState<PanelType>("main");
@@ -720,6 +737,69 @@ export default function PortContextMenu({
 									Set
 								</button>
 							</div>
+						)}
+
+						{/* Cross-workspace link */}
+						{crossLink ? (
+							<>
+								<div className="border-t border-(--app-border-light) my-1" />
+								<div className="px-3 py-1 text-[10px] text-violet-300 flex items-center gap-1.5">
+									<Link2 size={11} />
+									<span className="truncate">
+										{WORKSPACE_LINK_TYPE_LABELS[crossLink.linkType]} link to{" "}
+										{crossLink.far.locked
+											? crossLink.far.label
+											: `${crossLink.far.workspaceName} / ${crossLink.far.deviceName} P${crossLink.far.port}`}
+										{crossLink.label ? ` (${crossLink.label})` : ""}
+									</span>
+								</div>
+								{!crossLink.far.locked && onOpenCrossLink && (
+									<button
+										type="button"
+										className="w-full px-3 py-1.5 text-left text-(--app-text) hover:bg-(--app-surface-hover) flex items-center gap-2"
+										onClick={() => {
+											onOpenCrossLink(crossLink);
+											onClose();
+										}}
+									>
+										<ExternalLink size={12} />
+										Open linked workspace
+									</button>
+								)}
+								{onRemoveCrossLink && (
+									<button
+										type="button"
+										className="w-full px-3 py-1.5 text-left text-red-400 hover:bg-red-400/10 flex items-center gap-2"
+										onClick={() => {
+											onRemoveCrossLink(crossLink.id);
+											onClose();
+										}}
+									>
+										<Unlink size={12} />
+										Remove cross-workspace link
+									</button>
+								)}
+							</>
+						) : (
+							!isConnected &&
+							portNumber > 0 &&
+							!portConfig?.reserved &&
+							onLinkToWorkspace && (
+								<>
+									<div className="border-t border-(--app-border-light) my-1" />
+									<button
+										type="button"
+										className="w-full px-3 py-1.5 text-left text-violet-300 hover:bg-violet-400/10 flex items-center gap-2"
+										onClick={() => {
+											onLinkToWorkspace();
+											onClose();
+										}}
+									>
+										<Link2 size={12} />
+										Link to another workspace…
+									</button>
+								</>
+							)
 						)}
 
 						{/* Disconnect */}

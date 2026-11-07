@@ -181,14 +181,18 @@ export function validateNewLink(
 				message: `Device ${side} does not exist in its workspace`,
 			};
 		}
-		if (
-			!Number.isInteger(end.port) ||
-			end.port < 0 ||
-			end.port > dev.portCount
-		) {
+		if (!Number.isInteger(end.port) || end.port > dev.portCount) {
 			return {
 				code: "BAD_REQUEST",
 				message: `Port ${end.port} does not exist on ${dev.name}`,
+			};
+		}
+		/* Port 0 is the shared virtual WiFi interface; a site-to-site link
+		   always terminates on a physical port. */
+		if (end.port < 1) {
+			return {
+				code: "BAD_REQUEST",
+				message: "Cross-workspace links need a physical port (1 or higher)",
 			};
 		}
 		const used = portOccupant(

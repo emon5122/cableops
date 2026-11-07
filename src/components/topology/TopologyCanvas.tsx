@@ -26,10 +26,17 @@ import {
 	type RouteRow,
 	sameSubnet
 } from "@/lib/topology-types";
+import {
+	linkedPortKey,
+	WORKSPACE_LINK_TYPE_LABELS,
+	type WorkspaceLinkView,
+} from "@/lib/workspace-links";
 import { motion } from "framer-motion";
 import { toPng } from "html-to-image";
 import {
 	Download,
+	Link2,
+	Lock,
 	Maximize,
 	Minimize,
 	Minus,
@@ -124,6 +131,25 @@ interface TopologyCanvasProps {
 		},
 	) => void;
 	onDeleteAnnotation: (id: string) => void;
+	/** Cross-workspace links keyed by "deviceId:port" (see linkedPortKey). */
+	crossLinks?: Map<string, WorkspaceLinkView>;
+	/** Open the far side of a cross-link (navigates to that workspace). */
+	onOpenCrossLink?: (link: WorkspaceLinkView) => void;
+	/** Start the "link to another workspace" flow for a port (editors only). */
+	onLinkPortToWorkspace?: (deviceId: string, portNumber: number) => void;
+	/** Remove a cross-workspace link (editors only). */
+	onRemoveCrossLink?: (linkId: string) => void;
+	/** Scroll to and select this device once it is loaded. */
+	focusDeviceId?: string | null;
+}
+
+/** Port fill for a port carried by a cross-workspace link. */
+const CROSS_LINK_COLOR = "#8b5cf6";
+
+function crossLinkTitle(link: WorkspaceLinkView): string {
+	const type = WORKSPACE_LINK_TYPE_LABELS[link.linkType];
+	if (link.far.locked) return `${type} link to a ${link.far.label} (no access)`;
+	return `${type} link to ${link.far.workspaceName} / ${link.far.deviceName} P${link.far.port} (click to open)`;
 }
 
 export default function TopologyCanvas({
@@ -146,6 +172,11 @@ export default function TopologyCanvas({
 	onAddAnnotation,
 	onUpdateAnnotation,
 	onDeleteAnnotation,
+	crossLinks,
+	onOpenCrossLink,
+	onLinkPortToWorkspace,
+	onRemoveCrossLink,
+	focusDeviceId = null,
 }: TopologyCanvasProps) {
 	/* Helper: does a device with physical ports also need a WiFi P0 row? */
 	const deviceHasWifi = useCallback((device: DeviceRow): boolean => {
@@ -233,6 +264,26 @@ export default function TopologyCanvas({
 	}, [zoom]);
 
 	const clampZoom = (z: number) => Math.min(3, Math.max(0.25, Math.round(z * 100) / 100));
+
+	/* Focus a device once (e.g. after jumping here over a cross-link) */
+	const focusedDeviceRef = useRef<string | null>(null);
+	useEffect(() => {
+		if (!focusDeviceId || focusedDeviceRef.current === focusDeviceId) return;
+		const dev = devices.find((d) => d.id === focusDeviceId);
+		const el = containerRef.current;
+		if (!dev || !el) return;
+		focusedDeviceRef.current = focusDeviceId;
+		onDeviceSelect(focusDeviceId);
+		const z = zoomRef.current;
+		el.scrollTo({
+			left: Math.max(
+				0,
+				(dev.positionX + DEVICE_NODE_WIDTH / 2) * z - el.clientWidth / 2,
+			),
+			top: Math.max(0, dev.positionY * z - el.clientHeight / 3),
+			behavior: "smooth",
+		});
+	}, [focusDeviceId, devices, onDeviceSelect]);
 
 	// Fullscreen change detection
 	useEffect(() => {
@@ -1572,20 +1623,23 @@ export default function TopologyCanvas({
 								<div className="p-2 flex flex-wrap gap-1 justify-center">
 									{Array.from({ length: device.portCount }, (_, i) => {
 										const pNum = i + 1;
-										const connected = isPortConnected(
-											device.id,
-											pNum,
-											connections,
+										const crossLink = crossLinks?.get(
+											linkedPortKey(device.id, pNum),
 										);
+										const connected =
+											!!crossLink ||
+											isPortConnected(device.id, pNum, connections);
 										const isSel =
 											selectedPort?.deviceId === device.id &&
 											selectedPort.portNumber === pNum;
-										const portColor = getPortDisplayColor(
-											device.id,
-											pNum,
-											connections,
-											devices,
-										);
+										const portColor = crossLink
+											? CROSS_LINK_COLOR
+											: getPortDisplayColor(
+													device.id,
+													pNum,
+													connections,
+													devices,
+												);
 										const portTextColor = connected
 											? luminance(portColor) > 0.5
 												? "#000"
@@ -1623,6 +1677,10 @@ export default function TopologyCanvas({
 												}}
 												onClick={(e) => {
 													e.stopPropagation();
+													if (crossLink) {
+														if (!crossLink.far.locked) onOpenCrossLink?.(crossLink);
+														return;
+													}
 													onPortClick(device.id, pNum);
 												}}
 												onContextMenu={(e) => {
@@ -1635,9 +1693,21 @@ export default function TopologyCanvas({
 														y: e.clientY,
 													});
 												}}
-												title={`Port ${pNum}${pc?.alias ? ` (${pc.alias})` : ""}${pc?.vlan ? ` VLAN ${pc.vlan}` : ""}${pc?.speed ? ` ${pc.speed}` : ""}`}
+												title={`Port ${pNum}${pc?.alias ? ` (${pc.alias})` : ""}${pc?.vlan ? ` VLAN ${pc.vlan}` : ""}${pc?.speed ? ` ${pc.speed}` : ""}${crossLink ? ` — ${crossLinkTitle(crossLink)}` : ""}`}
 											>
 												{pNum}
+												{crossLink && (
+													<span
+														className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full flex items-center justify-center bg-(--app-surface) border border-violet-400 text-violet-300"
+														aria-hidden="true"
+													>
+														{crossLink.far.locked ? (
+															<Lock size={7} />
+														) : (
+															<Link2 size={7} />
+														)}
+													</span>
+												)}
 												{hasConfig && (
 													<div
 														className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full"
@@ -2205,6 +2275,22 @@ export default function TopologyCanvas({
 					onClose={() => setContextMenu(null)}
 					onUpdatePortConfig={onUpdatePortConfig}
 					onDisconnect={onDisconnect}
+					crossLink={
+						crossLinks?.get(
+							linkedPortKey(contextMenu.deviceId, contextMenu.portNumber),
+						) ?? null
+					}
+					onOpenCrossLink={onOpenCrossLink}
+					onRemoveCrossLink={onRemoveCrossLink}
+					onLinkToWorkspace={
+						onLinkPortToWorkspace
+							? () =>
+									onLinkPortToWorkspace(
+										contextMenu.deviceId,
+										contextMenu.portNumber,
+									)
+							: undefined
+					}
 				/>
 			)}
 
