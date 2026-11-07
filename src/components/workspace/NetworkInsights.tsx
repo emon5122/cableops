@@ -371,7 +371,7 @@ export default function NetworkInsights({
 			const latency = Math.round(0.5 + Math.random() * 2 + i * 0.3);
 			hops.push({
 				deviceId: devId,
-				deviceName: dev?.name ?? "Unknown",
+				deviceName: `${wsPrefix(devId)}${dev?.name ?? "Unknown"}`,
 				portNumber: portNum,
 				ipAddress: portIp,
 				color: dev?.color ?? "#888",
@@ -424,7 +424,7 @@ export default function NetworkInsights({
 			},
 			600 + path.length * 200,
 		);
-	}, [pingFrom, pingTo, portConfigs, connections, devices]);
+	}, [pingFrom, pingTo, portConfigs, connections, devices, wsPrefix]);
 
 	const tabs: { key: InsightTab; label: string; icon: typeof Layers }[] = [
 		{ key: "network", label: "Network Map", icon: Globe },
@@ -743,7 +743,7 @@ export default function NetworkInsights({
 																	style={{ backgroundColor: dev.color }}
 																/>
 																<span className="text-xs font-medium text-(--app-text)">
-																	{dev.name}
+																	{wsPrefix(dev.id)}{dev.name}
 																</span>
 																<span className="text-[9px] text-(--app-text-dim) ml-auto">
 																	no IP
@@ -762,7 +762,7 @@ export default function NetworkInsights({
 															/>
 															<div className="flex-1 min-w-0">
 																<div className="text-xs font-medium text-(--app-text)">
-																	{dev.name}
+																	{wsPrefix(dev.id)}{dev.name}
 																</div>
 																<div className="flex flex-wrap gap-1 mt-0.5">
 																	{devPorts.map((p) => (
@@ -869,7 +869,7 @@ export default function NetworkInsights({
 														/>
 														<div className="flex-1 min-w-0">
 															<div className="text-xs font-medium text-(--app-text)">
-																{dev.name}
+																{wsPrefix(dev.id)}{dev.name}
 																<span className="text-(--app-text-dim) text-[10px] ml-1">
 																	{DEVICE_TYPE_LABELS[
 																		dev.deviceType as keyof typeof DEVICE_TYPE_LABELS
@@ -1052,7 +1052,7 @@ export default function NetworkInsights({
 														style={{ backgroundColor: dev.color }}
 													/>
 													<span className="text-xs font-medium text-(--app-text) flex-1 truncate">
-														{dev.name}
+														{wsPrefix(dev.id)}{dev.name}
 													</span>
 													<span className="text-[9px] text-(--app-text-dim)">
 														{DEVICE_TYPE_LABELS[
@@ -1100,7 +1100,7 @@ export default function NetworkInsights({
 																style={{ backgroundColor: dev.color }}
 															/>
 															<span className="text-[10px] font-medium text-(--app-text)">
-																{dev.name}
+																{wsPrefix(dev.id)}{dev.name}
 															</span>
 														</div>
 													</div>
