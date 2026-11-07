@@ -47,8 +47,14 @@ cross-links. Each snapshot link is then recreated when:
   collaboration mode), and
 - neither port is already used by a connection or another cross-link.
 
-Every other link is skipped; the import result lists `linksImported` and
-`linksSkipped` (with the reason for each), and the workspace page shows them.
+Every other link is skipped; the import result lists `linksRemoved` (the
+workspace's cross-links that the import dropped, including ones into
+workspaces the importer cannot edit), `linksImported` and `linksSkipped`
+(with the reason for each), and the workspace page shows them. The workspace
+page asks for confirmation before importing over existing cross-links.
+
+Exporting needs read access to the workspace (owner, member, or an ownerless
+draft); importing needs edit access.
 
 ## Minimal Example
 

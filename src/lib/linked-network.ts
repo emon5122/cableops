@@ -163,16 +163,21 @@ export function computeLinkedReachability(
 
 /**
  * Workspaces reachable from `startId` over cross-links, visiting only
- * workspaces `canRead` allows. Returns the visited ids (start first) and how
- * many linked workspaces were skipped because the viewer cannot read them.
+ * workspaces `include` allows (default: `canRead`). Returns the visited ids
+ * (start first), how many linked workspaces were skipped because the viewer
+ * cannot read them, and `truncated` when a readable workspace was left out
+ * anyway (the caller's size cap), so it is not miscounted as locked.
  */
 export function collectLinkedWorkspaces(
 	startId: string,
 	links: Pick<WorkspaceLinkRow, "workspaceAId" | "workspaceBId">[],
 	canRead: (workspaceId: string) => boolean,
-): { workspaceIds: string[]; lockedCount: number } {
+	include: (workspaceId: string) => boolean = canRead,
+): { workspaceIds: string[]; lockedCount: number; truncated: boolean } {
 	const visited = new Set<string>([startId]);
+	const skipped = new Set<string>();
 	const locked = new Set<string>();
+	let truncated = false;
 	const order = [startId];
 	const queue = [startId];
 	while (queue.length > 0) {
@@ -184,9 +189,15 @@ export function collectLinkedWorkspaces(
 					: l.workspaceBId === current
 						? l.workspaceAId
 						: null;
-			if (!next || visited.has(next) || locked.has(next)) continue;
+			if (!next || visited.has(next) || skipped.has(next)) continue;
 			if (!canRead(next)) {
+				skipped.add(next);
 				locked.add(next);
+				continue;
+			}
+			if (!include(next)) {
+				skipped.add(next);
+				truncated = true;
 				continue;
 			}
 			visited.add(next);
@@ -194,5 +205,5 @@ export function collectLinkedWorkspaces(
 			queue.push(next);
 		}
 	}
-	return { workspaceIds: order, lockedCount: locked.size };
+	return { workspaceIds: order, lockedCount: locked.size, truncated };
 }

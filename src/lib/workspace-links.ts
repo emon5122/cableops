@@ -116,6 +116,28 @@ export function portOccupant(
 	return null;
 }
 
+/**
+ * Ports of `deviceId` above `portCount` that a cable or cross-link still
+ * uses, sorted. Shrinking a device to `portCount` must leave this empty.
+ */
+export function portsInUseAbove(
+	deviceId: string,
+	portCount: number,
+	connections: ConnectionEndsRow[],
+	links: LinkEndsRow[],
+): number[] {
+	const busy = new Set<number>();
+	const ends = [
+		...connections.map((c) => [c.deviceAId, c.portA, c.deviceBId, c.portB]),
+		...links.map((l) => [l.deviceAId, l.portA, l.deviceBId, l.portB]),
+	] as [string, number, string, number][];
+	for (const [devA, portA, devB, portB] of ends) {
+		if (devA === deviceId && portA > portCount) busy.add(portA);
+		if (devB === deviceId && portB > portCount) busy.add(portB);
+	}
+	return [...busy].sort((x, y) => x - y);
+}
+
 /* ── Validation ── */
 
 export type LinkErrorCode = "FORBIDDEN" | "BAD_REQUEST" | "CONFLICT";

@@ -47,6 +47,9 @@ CableOps is an **interface-first network validation engine** with visual topolog
 
 - Unique `(deviceId, portNumber)` in `interfaces`
 - Workspace and endpoint validation in tRPC mutations
+- Every mutation checks the caller's access to the workspace it touches: edit (owner, collaborator, or an ownerless draft) for topology changes and import, owner for deleting a workspace, read for snapshot export
+- One cable or cross-workspace link per port (port 0, the virtual WiFi interface, excepted), enforced in a transaction that locks the device rows, so concurrent requests cannot double-book a port
+- A device's port count cannot shrink below a port that still carries a cable or cross-workspace link
 - Port existence checks against device `portCount`
 - CIDR validation for route destinations and interface-aware DHCP range checks
 - Indexed query paths for `workspaceId`, `deviceId`, `deviceAId`, and `deviceBId`

@@ -46,6 +46,9 @@ interface NetworkInsightsProps {
 		workspaceCount: number;
 		/** Linked workspaces left out because the viewer cannot read them. */
 		lockedCount: number;
+		/** The union hit the server's size cap; more linked sites exist. */
+		truncated?: boolean;
+		maxWorkspaces?: number;
 		onToggle: () => void;
 	};
 }
@@ -475,6 +478,12 @@ export default function NetworkInsights({
 					{linkedSites.lockedCount} linked workspace
 					{linkedSites.lockedCount === 1 ? " is" : "s are"} left out because
 					you cannot view {linkedSites.lockedCount === 1 ? "it" : "them"}.
+				</p>
+			)}
+			{linkedSites?.enabled && linkedSites.truncated && (
+				<p className="text-[11px] text-amber-400 mb-3">
+					Only the first {linkedSites.maxWorkspaces ?? linkedSites.workspaceCount}{" "}
+					linked workspaces are analysed; more sites are linked beyond them.
 				</p>
 			)}
 

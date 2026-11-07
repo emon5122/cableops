@@ -26,6 +26,7 @@ import {
 	type LinkValidationError,
 	orientLink,
 	portOccupant,
+	portsInUseAbove,
 	toLinkView,
 	validateNewLink,
 	WORKSPACE_LINK_TYPES,
@@ -234,12 +235,35 @@ function throwLinkError(err: LinkValidationError): never {
 	throw new TRPCError({ code: err.code, message: err.message });
 }
 
+/* ── Port claims ──
+   A port is taken by a cable (connections) or by a cross-workspace link, and
+   end A of one link may be end B of another, so no single unique index can
+   guard it. Every write that claims a port (or shrinks a device's ports)
+   therefore runs in a transaction that first locks the device rows involved;
+   the occupancy check and the insert then see each other's commits. */
+
+type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type DbExecutor = typeof db | DbTx;
+
+/** Lock device rows for the rest of the transaction (sorted: no deadlocks). */
+async function lockDevices(tx: DbTx, deviceIds: string[]): Promise<void> {
+	const ids = [...new Set(deviceIds)].sort();
+	if (ids.length === 0) return;
+	await tx
+		.select({ id: schema.devices.id })
+		.from(schema.devices)
+		.where(inArray(schema.devices.id, ids))
+		.orderBy(schema.devices.id)
+		.for("update");
+}
+
 /** Cross-links touching any of the given devices. */
 async function linksTouchingDevices(
 	deviceIds: string[],
+	ex: DbExecutor = db,
 ): Promise<WorkspaceLinkRow[]> {
 	if (deviceIds.length === 0) return [];
-	return db
+	return ex
 		.select()
 		.from(schema.workspaceLinks)
 		.where(
@@ -270,13 +294,13 @@ async function linksTouchingWorkspaces(
 async function loadLinkEndContext(
 	end: LinkEnd,
 	access: WorkspaceAccess | null,
-	extraLinks: WorkspaceLinkRow[] = [],
+	ex: DbExecutor = db,
 ): Promise<LinkEndContext> {
-	const deviceRows = await db
+	const deviceRows = await ex
 		.select()
 		.from(schema.devices)
 		.where(eq(schema.devices.id, end.deviceId));
-	const connections = await db
+	const connections = await ex
 		.select()
 		.from(schema.connections)
 		.where(
@@ -285,12 +309,12 @@ async function loadLinkEndContext(
 				eq(schema.connections.deviceBId, end.deviceId),
 			),
 		);
-	const links = await linksTouchingDevices([end.deviceId]);
+	const links = await linksTouchingDevices([end.deviceId], ex);
 	return {
 		access,
 		device: deviceRows[0] ?? null,
 		connections,
-		links: [...links, ...extraLinks],
+		links,
 	};
 }
 
@@ -360,54 +384,56 @@ async function importSnapshotLinks(
 		userId,
 	);
 	const remoteDeviceIds = [...new Set(links.map((l) => l.remote.deviceId))];
-	const [localDevices, localConnections, remoteDevices, remoteConnections, remoteLinks] =
-		await Promise.all([
-			db
-				.select()
-				.from(schema.devices)
-				.where(eq(schema.devices.workspaceId, workspaceId)),
-			db
-				.select()
-				.from(schema.connections)
-				.where(eq(schema.connections.workspaceId, workspaceId)),
-			db
-				.select()
-				.from(schema.devices)
-				.where(inArray(schema.devices.id, remoteDeviceIds)),
-			db
-				.select()
-				.from(schema.connections)
-				.where(
-					or(
-						inArray(schema.connections.deviceAId, remoteDeviceIds),
-						inArray(schema.connections.deviceBId, remoteDeviceIds),
-					),
+	/* Same port-claim lock as workspaceLinks.create, on every device touched */
+	const plan = await db.transaction(async (tx) => {
+		await lockDevices(tx, [...remoteDeviceIds, ...deviceIdMap.values()]);
+		const localDevices = await tx
+			.select()
+			.from(schema.devices)
+			.where(eq(schema.devices.workspaceId, workspaceId));
+		const localConnections = await tx
+			.select()
+			.from(schema.connections)
+			.where(eq(schema.connections.workspaceId, workspaceId));
+		const remoteDevices = await tx
+			.select()
+			.from(schema.devices)
+			.where(inArray(schema.devices.id, remoteDeviceIds));
+		const remoteConnections = await tx
+			.select()
+			.from(schema.connections)
+			.where(
+				or(
+					inArray(schema.connections.deviceAId, remoteDeviceIds),
+					inArray(schema.connections.deviceBId, remoteDeviceIds),
 				),
-			linksTouchingDevices(remoteDeviceIds),
-		]);
+			);
+		const remoteLinks = await linksTouchingDevices(remoteDeviceIds, tx);
 
-	const plan = planSnapshotLinkImport({
-		workspaceId,
-		links,
-		deviceIdMap,
-		access: new Map(
-			[...accessMap].map(([id, entry]) => [id, entry.access] as const),
-		),
-		localDevices,
-		localConnections,
-		remoteDevices,
-		remoteConnections,
-		remoteLinks,
+		const planned = planSnapshotLinkImport({
+			workspaceId,
+			links,
+			deviceIdMap,
+			access: new Map(
+				[...accessMap].map(([id, entry]) => [id, entry.access] as const),
+			),
+			localDevices,
+			localConnections,
+			remoteDevices,
+			remoteConnections,
+			remoteLinks,
+		});
+		if (planned.create.length > 0) {
+			await tx.insert(schema.workspaceLinks).values(
+				planned.create.map((p) => ({
+					id: crypto.randomUUID(),
+					...p,
+					createdBy: userId,
+				})),
+			);
+		}
+		return planned;
 	});
-	if (plan.create.length > 0) {
-		await db.insert(schema.workspaceLinks).values(
-			plan.create.map((p) => ({
-				id: crypto.randomUUID(),
-				...p,
-				createdBy: userId,
-			})),
-		);
-	}
 	return { imported: plan.create.length, skipped: plan.skipped };
 }
 
@@ -795,6 +821,13 @@ const workspacesRouter = {
 		.mutation(async ({ input, ctx }) => {
 			await requireWorkspaceAccess(input.workspaceId, ctx.userId, "edit");
 
+			/* Replacing the devices cascades away every cross-link of this
+			   workspace (also ones into workspaces the importer cannot edit);
+			   report how many, next to how many the snapshot restores. */
+			const linksRemoved = (
+				await linksTouchingWorkspaces([input.workspaceId])
+			).length;
+
 			const currentDevices = await db
 				.select()
 				.from(schema.devices)
@@ -940,6 +973,7 @@ const workspacesRouter = {
 				success: true,
 				devicesImported: input.snapshot.devices.length,
 				connectionsImported: input.snapshot.connections.length,
+				linksRemoved,
 				linksImported: linkReport.imported,
 				linksSkipped: linkReport.skipped,
 			};
@@ -1011,12 +1045,37 @@ const devicesRouter = {
 			const device = await requireDeviceEdit(input.id, ctx.userId);
 			const { id, ...fields } = input;
 			if (!hasValues(fields)) return device;
-			const rows = await db
-				.update(schema.devices)
-				.set(fields)
-				.where(eq(schema.devices.id, id))
-				.returning();
-			return rows[0] ?? null;
+			return db.transaction(async (tx) => {
+				const newCount = fields.portCount;
+				if (newCount !== undefined && newCount < device.portCount) {
+					/* Ports above the new count must be free of cables and of
+					   cross-links (which the far workspace sees too). */
+					await lockDevices(tx, [id]);
+					const cables = await tx
+						.select()
+						.from(schema.connections)
+						.where(
+							or(
+								eq(schema.connections.deviceAId, id),
+								eq(schema.connections.deviceBId, id),
+							),
+						);
+					const links = await linksTouchingDevices([id], tx);
+					const busy = portsInUseAbove(id, newCount, cables, links);
+					if (busy.length > 0) {
+						throw new TRPCError({
+							code: "CONFLICT",
+							message: `Port${busy.length > 1 ? "s" : ""} ${busy.join(", ")} still ${busy.length > 1 ? "have" : "has"} a cable or cross-workspace link; remove ${busy.length > 1 ? "them" : "it"} before reducing the port count to ${newCount}`,
+						});
+					}
+				}
+				const rows = await tx
+					.update(schema.devices)
+					.set(fields)
+					.where(eq(schema.devices.id, id))
+					.returning();
+				return rows[0] ?? null;
+			});
 		}),
 
 	move: publicProcedure
@@ -1075,100 +1134,105 @@ const connectionsRouter = {
 				throw new Error("Cannot connect a device to itself");
 			}
 
-			/* Validate both devices exist and belong to the same workspace */
-			const linkedDevices = await db
-				.select()
-				.from(schema.devices)
-				.where(inArray(schema.devices.id, [input.deviceAId, input.deviceBId]));
-			const deviceA = linkedDevices.find((d) => d.id === input.deviceAId);
-			const deviceB = linkedDevices.find((d) => d.id === input.deviceBId);
-			if (!deviceA || !deviceB) {
-				throw new Error("Both connection endpoints must reference valid devices");
-			}
-			if (
-				deviceA.workspaceId !== input.workspaceId ||
-				deviceB.workspaceId !== input.workspaceId
-			) {
-				throw new Error("Both devices must belong to the same workspace");
-			}
+			const row = await db.transaction(async (tx) => {
+				/* Lock both devices: the port checks and the insert run alone */
+				await lockDevices(tx, [input.deviceAId, input.deviceBId]);
 
-			/* Validate port numbers exist on both devices (0..portCount) */
-			if (input.portA < 0 || input.portA > deviceA.portCount) {
-				throw new Error(`Port ${input.portA} does not exist on device A`);
-			}
-			if (input.portB < 0 || input.portB > deviceB.portCount) {
-				throw new Error(`Port ${input.portB} does not exist on device B`);
-			}
-
-			/* A port can only participate in one connection (except port 0 — virtual WiFi) */
-			const existing = await db
-				.select()
-				.from(schema.connections)
-				.where(eq(schema.connections.workspaceId, input.workspaceId));
-			for (const conn of existing) {
-				/* Port 0 is the virtual WiFi interface — multiple WiFi clients can share it */
-				if (
-					input.portA !== 0 &&
-					((conn.deviceAId === input.deviceAId && conn.portA === input.portA) ||
-					(conn.deviceBId === input.deviceAId && conn.portB === input.portA))
-				) {
-					throw new Error(`Port ${input.portA} on device A is already connected`);
+				/* Validate both devices exist and belong to the same workspace */
+				const linkedDevices = await tx
+					.select()
+					.from(schema.devices)
+					.where(inArray(schema.devices.id, [input.deviceAId, input.deviceBId]));
+				const deviceA = linkedDevices.find((d) => d.id === input.deviceAId);
+				const deviceB = linkedDevices.find((d) => d.id === input.deviceBId);
+				if (!deviceA || !deviceB) {
+					throw new Error("Both connection endpoints must reference valid devices");
 				}
 				if (
-					input.portB !== 0 &&
-					((conn.deviceAId === input.deviceBId && conn.portA === input.portB) ||
-					(conn.deviceBId === input.deviceBId && conn.portB === input.portB))
+					deviceA.workspaceId !== input.workspaceId ||
+					deviceB.workspaceId !== input.workspaceId
 				) {
-					throw new Error(`Port ${input.portB} on device B is already connected`);
+					throw new Error("Both devices must belong to the same workspace");
 				}
-			}
 
-			/* A port used by a cross-workspace link counts as connected */
-			const crossLinks = await linksTouchingDevices([
-				input.deviceAId,
-				input.deviceBId,
-			]);
-			if (portOccupant(input.deviceAId, input.portA, [], crossLinks)) {
-				throw new Error(
-					`Port ${input.portA} on device A is linked to another workspace`,
-				);
-			}
-			if (portOccupant(input.deviceBId, input.portB, [], crossLinks)) {
-				throw new Error(
-					`Port ${input.portB} on device B is linked to another workspace`,
-				);
-			}
-
-			/* For WiFi, prevent duplicate WiFi link between same two devices */
-			if (input.connectionType === "wifi") {
-				const duplicate = existing.find(
-					(c) =>
-						c.connectionType === "wifi" &&
-						((c.deviceAId === input.deviceAId &&
-							c.deviceBId === input.deviceBId) ||
-							(c.deviceAId === input.deviceBId &&
-								c.deviceBId === input.deviceAId)),
-				);
-				if (duplicate) {
-					throw new Error("These devices are already connected via WiFi");
+				/* Validate port numbers exist on both devices (0..portCount) */
+				if (input.portA < 0 || input.portA > deviceA.portCount) {
+					throw new Error(`Port ${input.portA} does not exist on device A`);
 				}
-			}
+				if (input.portB < 0 || input.portB > deviceB.portCount) {
+					throw new Error(`Port ${input.portB} does not exist on device B`);
+				}
 
-			const id = crypto.randomUUID();
-			const rows = await db
-				.insert(schema.connections)
-				.values({
-					id,
-					workspaceId: input.workspaceId,
-					deviceAId: input.deviceAId,
-					portA: input.portA,
-					deviceBId: input.deviceBId,
-					portB: input.portB,
-					speed: input.speed ?? null,
-					connectionType: input.connectionType,
-				})
-				.returning();
-			const row = rows[0];
+				/* A port can only participate in one connection (except port 0 — virtual WiFi) */
+				const existing = await tx
+					.select()
+					.from(schema.connections)
+					.where(eq(schema.connections.workspaceId, input.workspaceId));
+				for (const conn of existing) {
+					/* Port 0 is the virtual WiFi interface — multiple WiFi clients can share it */
+					if (
+						input.portA !== 0 &&
+						((conn.deviceAId === input.deviceAId && conn.portA === input.portA) ||
+						(conn.deviceBId === input.deviceAId && conn.portB === input.portA))
+					) {
+						throw new Error(`Port ${input.portA} on device A is already connected`);
+					}
+					if (
+						input.portB !== 0 &&
+						((conn.deviceAId === input.deviceBId && conn.portA === input.portB) ||
+						(conn.deviceBId === input.deviceBId && conn.portB === input.portB))
+					) {
+						throw new Error(`Port ${input.portB} on device B is already connected`);
+					}
+				}
+
+				/* A port used by a cross-workspace link counts as connected */
+				const crossLinks = await linksTouchingDevices(
+					[input.deviceAId, input.deviceBId],
+					tx,
+				);
+				if (portOccupant(input.deviceAId, input.portA, [], crossLinks)) {
+					throw new Error(
+						`Port ${input.portA} on device A is linked to another workspace`,
+					);
+				}
+				if (portOccupant(input.deviceBId, input.portB, [], crossLinks)) {
+					throw new Error(
+						`Port ${input.portB} on device B is linked to another workspace`,
+					);
+				}
+
+				/* For WiFi, prevent duplicate WiFi link between same two devices */
+				if (input.connectionType === "wifi") {
+					const duplicate = existing.find(
+						(c) =>
+							c.connectionType === "wifi" &&
+							((c.deviceAId === input.deviceAId &&
+								c.deviceBId === input.deviceBId) ||
+								(c.deviceAId === input.deviceBId &&
+									c.deviceBId === input.deviceAId)),
+					);
+					if (duplicate) {
+						throw new Error("These devices are already connected via WiFi");
+					}
+				}
+
+				const id = crypto.randomUUID();
+				const rows = await tx
+					.insert(schema.connections)
+					.values({
+						id,
+						workspaceId: input.workspaceId,
+						deviceAId: input.deviceAId,
+						portA: input.portA,
+						deviceBId: input.deviceBId,
+						portB: input.portB,
+						speed: input.speed ?? null,
+						connectionType: input.connectionType,
+					})
+					.returning();
+				return rows[0];
+			});
 			if (!row) throw new Error("Failed to create connection");
 			return row;
 		}),
@@ -1729,7 +1793,7 @@ const workspaceLinksRouter = {
 				b: linkEndInput,
 				linkType: z.enum(WORKSPACE_LINK_TYPES).default("wired"),
 				label: z.string().max(120).nullable().optional(),
-				speed: z.string().nullable().optional(),
+				speed: z.string().max(60).nullable().optional(),
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
@@ -1742,28 +1806,31 @@ const workspaceLinksRouter = {
 			const denied = checkLinkEditAccess(accessA, accessB);
 			if (denied) throwLinkError(denied);
 
-			const ctxA = await loadLinkEndContext(input.a, accessA);
-			const ctxB = await loadLinkEndContext(input.b, accessB);
-			const err = validateNewLink(input.a, input.b, ctxA, ctxB);
-			if (err) throwLinkError(err);
+			const row = await db.transaction(async (tx) => {
+				await lockDevices(tx, [input.a.deviceId, input.b.deviceId]);
+				const ctxA = await loadLinkEndContext(input.a, accessA, tx);
+				const ctxB = await loadLinkEndContext(input.b, accessB, tx);
+				const err = validateNewLink(input.a, input.b, ctxA, ctxB);
+				if (err) throwLinkError(err);
 
-			const rows = await db
-				.insert(schema.workspaceLinks)
-				.values({
-					id: crypto.randomUUID(),
-					workspaceAId: input.a.workspaceId,
-					deviceAId: input.a.deviceId,
-					portA: input.a.port,
-					workspaceBId: input.b.workspaceId,
-					deviceBId: input.b.deviceId,
-					portB: input.b.port,
-					linkType: input.linkType,
-					label: input.label?.trim() || null,
-					speed: input.speed ?? null,
-					createdBy: ctx.userId,
-				})
-				.returning();
-			const row = rows[0];
+				const rows = await tx
+					.insert(schema.workspaceLinks)
+					.values({
+						id: crypto.randomUUID(),
+						workspaceAId: input.a.workspaceId,
+						deviceAId: input.a.deviceId,
+						portA: input.a.port,
+						workspaceBId: input.b.workspaceId,
+						deviceBId: input.b.deviceId,
+						portB: input.b.port,
+						linkType: input.linkType,
+						label: input.label?.trim() || null,
+						speed: input.speed ?? null,
+						createdBy: ctx.userId,
+					})
+					.returning();
+				return rows[0];
+			});
 			if (!row) throw new Error("Failed to create link");
 			return row;
 		}),
@@ -1774,7 +1841,7 @@ const workspaceLinksRouter = {
 				id: z.string(),
 				linkType: z.enum(WORKSPACE_LINK_TYPES).optional(),
 				label: z.string().max(120).nullable().optional(),
-				speed: z.string().nullable().optional(),
+				speed: z.string().max(60).nullable().optional(),
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
@@ -1795,6 +1862,7 @@ const workspaceLinksRouter = {
 			if (denied) throwLinkError(denied);
 
 			const { id, ...fields } = input;
+			if (!hasValues(fields)) return link;
 			const rows = await db
 				.update(schema.workspaceLinks)
 				.set({
@@ -2043,11 +2111,16 @@ const workspaceLinksRouter = {
 				}
 			}
 
-			const { workspaceIds, lockedCount } = collectLinkedWorkspaces(
+			const collected = collectLinkedWorkspaces(
 				input.workspaceId,
 				[...allLinks.values()],
+				(id) => access.get(id)?.access.canRead ?? false,
 				(id) => readable.has(id),
 			);
+			const { workspaceIds, lockedCount } = collected;
+			/* Over the cap: readable workspaces were left out, or the last
+			   frontier's own links were never followed. */
+			const truncated = collected.truncated || frontier.length > 0;
 
 			const devices = await db
 				.select()
@@ -2090,6 +2163,8 @@ const workspaceLinksRouter = {
 					(l) => included.has(l.workspaceAId) && included.has(l.workspaceBId),
 				),
 				lockedCount,
+				truncated,
+				maxWorkspaces: MAX_LINKED_WORKSPACES,
 			};
 		}),
 } satisfies TRPCRouterRecord;

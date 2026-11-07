@@ -237,5 +237,18 @@ describe("collectLinkedWorkspaces", () => {
 		const r = collectLinkedWorkspaces("home", links, (id) => id !== "vps");
 		expect(r.workspaceIds).toEqual(["home", "hospital"]);
 		expect(r.lockedCount).toBe(1);
+		expect(r.truncated).toBe(false);
+	});
+
+	it("reports readable workspaces left out by a cap as truncated, not locked", () => {
+		const r = collectLinkedWorkspaces(
+			"home",
+			links,
+			(id) => id !== "hospital",
+			(id) => id === "home" || id === "vps",
+		);
+		expect(r.workspaceIds).toEqual(["home", "vps"]);
+		expect(r.lockedCount).toBe(1);
+		expect(r.truncated).toBe(true);
 	});
 });

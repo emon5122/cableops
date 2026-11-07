@@ -315,8 +315,15 @@ function WorkspacePage() {
 					queryKey: trpc.workspaceLinks.list.queryKey({ workspaceId }),
 				});
 				const skipped = result.linksSkipped ?? [];
-				if (result.linksImported > 0 || skipped.length > 0) {
-					const parts = [`${result.linksImported} cross-workspace link(s) restored`];
+				if (
+					result.linksRemoved > 0 ||
+					result.linksImported > 0 ||
+					skipped.length > 0
+				) {
+					const parts = [
+						`${result.linksRemoved} cross-workspace link(s) removed`,
+						`${result.linksImported} restored from the snapshot`,
+					];
 					if (skipped.length > 0) {
 						parts.push(
 							`${skipped.length} skipped: ${skipped
@@ -661,6 +668,17 @@ function WorkspacePage() {
 					console.error("Import failed: invalid snapshot schema", snapshotResult.error.format());
 					return;
 				}
+				/* Import replaces every device, which removes this workspace's
+				   cross-links (including ones into workspaces you cannot edit). */
+				const linkCount = crossLinksQuery.data?.length ?? 0;
+				if (
+					linkCount > 0 &&
+					!window.confirm(
+						`Importing replaces every device in this workspace. ${linkCount} cross-workspace link(s) will be removed; links in the snapshot are restored where you can edit both sides. Continue?`,
+					)
+				) {
+					return;
+				}
 				importSnapshot.mutate({
 					workspaceId,
 					snapshot: snapshotResult.data,
@@ -669,7 +687,7 @@ function WorkspacePage() {
 				console.error("Import failed", error);
 			}
 		},
-		[importSnapshot, workspaceId],
+		[importSnapshot, workspaceId, crossLinksQuery.data],
 	);
 
 	const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -1164,6 +1182,8 @@ function WorkspacePage() {
 												workspaceCount:
 													linkedNetworkQuery.data?.parts.length ?? 1,
 												lockedCount: linkedNetworkQuery.data?.lockedCount ?? 0,
+												truncated: linkedNetworkQuery.data?.truncated ?? false,
+												maxWorkspaces: linkedNetworkQuery.data?.maxWorkspaces,
 												onToggle: () => setIncludeLinkedSites((v) => !v),
 											}
 										: undefined

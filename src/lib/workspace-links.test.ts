@@ -8,6 +8,7 @@ import {
 	LOCKED_LINK_LABEL,
 	linkToConnection,
 	portOccupant,
+	portsInUseAbove,
 	toLinkView,
 	validateNewLink,
 	type WorkspaceLinkRow,
@@ -315,5 +316,30 @@ describe("linkToConnection and site edges", () => {
 		expect(edges).toHaveLength(1);
 		expect(edges[0]).toMatchObject({ count: 3 });
 		expect(edges[0]?.types.sort()).toEqual(["vpn", "wan"]);
+	});
+});
+
+describe("portsInUseAbove", () => {
+	it("lists cabled and linked ports above the new count, on either end", () => {
+		const cables = [
+			{ deviceAId: "sw", portA: 3, deviceBId: "pc", portB: 1 },
+			{ deviceAId: "ap", portA: 1, deviceBId: "sw", portB: 7 },
+			{ deviceAId: "ap", portA: 0, deviceBId: "sw", portB: 0 },
+		];
+		const links = [
+			{
+				id: "l1",
+				workspaceAId: "a",
+				deviceAId: "far",
+				portA: 1,
+				workspaceBId: "b",
+				deviceBId: "sw",
+				portB: 6,
+			},
+		];
+		expect(portsInUseAbove("sw", 2, cables, links)).toEqual([3, 6, 7]);
+		expect(portsInUseAbove("sw", 6, cables, links)).toEqual([7]);
+		expect(portsInUseAbove("sw", 8, cables, links)).toEqual([]);
+		expect(portsInUseAbove("pc", 0, cables, links)).toEqual([1]);
 	});
 });
