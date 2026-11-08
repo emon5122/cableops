@@ -1,0 +1,38 @@
+name: CI
+
+on:
+    push:
+        branches:
+            - main
+    pull_request:
+    # Release PRs opened by release-please with GITHUB_TOKEN get no push/pull_request
+    # events; release-please.yml dispatches this workflow on the release branch instead.
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    ci:
+        name: ci
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 10.11.0
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm check-types
+            - run: pnpm test
+            - run: pnpm build

@@ -4,6 +4,13 @@ on:
     push:
         tags:
             - "*"
+    # release-please tags created with GITHUB_TOKEN fire no push event;
+    # release-please.yml dispatches this workflow on the tag instead.
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    packages: write
 
 env:
     REGISTRY: docker.io
@@ -35,7 +42,7 @@ jobs:
               with:
                   registry: ghcr.io
                   username: emon5122
-                  password: ${{ secrets.GH_TOKEN }}
+                  password: ${{ github.token }}
 
             - name: Extract metadata
               id: meta
