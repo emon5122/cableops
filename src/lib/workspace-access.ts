@@ -7,9 +7,9 @@
  * - The owner can edit.
  * - A member (joined via share link) can edit in "collaboration" mode and
  *   only read in "presentation" mode.
- * - Anyone else is an outsider: the workspace page itself is still viewable
- *   by URL, but cross-workspace features never reveal an outsider's
- *   workspace (name, devices) or let anyone link into it.
+ * - Anyone else is an outsider: every read and write is refused. There is no
+ *   view-by-URL and no anonymous read; outsiders get in only by signing in and
+ *   joining through a share link, which makes them a member.
  */
 
 export type WorkspacePermission = "owner" | "collaborator" | "viewer";

@@ -1,8 +1,9 @@
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
 import { useTRPC } from "@/integrations/trpc/react";
 import { authClient } from "@/lib/auth-client";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { rememberShareRedirect, resolveShareFlow } from "@/lib/share-flow";
 
 export const Route = createFileRoute("/share/$shareToken" as never)({
 	component: SharedWorkspaceResolver,
@@ -13,7 +14,7 @@ function SharedWorkspaceResolver() {
 	const shareToken = params.shareToken;
 	const navigate = useNavigate();
 	const trpc = useTRPC();
-	const { data: session } = authClient.useSession();
+	const { data: session, isPending: sessionPending } = authClient.useSession();
 	const joinedRef = useRef(false);
 
 	const shareQuery = useQuery(
@@ -46,18 +47,28 @@ function SharedWorkspaceResolver() {
 			);
 			return;
 		}
+	}, [
+		shareQuery.isSuccess,
+		shareQuery.data,
+		navigate,
+		session?.user,
+		joinViaShare,
+	]);
 
-		// Anonymous users just redirect
-		if (!session?.user) {
-			void navigate({
-				to: "/workspace/$workspaceId",
-				params: { workspaceId: resolved.workspaceId },
-				replace: true,
-			});
+	const flow = resolveShareFlow({
+		sessionPending,
+		signedIn: !!session?.user,
+		linkLoading: shareQuery.isLoading,
+		linkValid: !!shareQuery.data,
+	});
+
+	useEffect(() => {
+		if (flow.kind === "sign-in-required") {
+			rememberShareRedirect(`/share/${shareToken}`);
 		}
-	}, [shareQuery.isSuccess, shareQuery.data, navigate, session?.user, joinViaShare]);
+	}, [flow.kind, shareToken]);
 
-	if (shareQuery.isLoading) {
+	if (flow.kind === "resolving") {
 		return (
 			<div className="h-full flex items-center justify-center bg-(--app-bg) text-(--app-text-muted)">
 				Resolving shared workspace…
@@ -65,10 +76,28 @@ function SharedWorkspaceResolver() {
 		);
 	}
 
-	if (!shareQuery.data) {
+	if (flow.kind === "invalid" || !shareQuery.data) {
 		return (
 			<div className="h-full flex items-center justify-center bg-(--app-bg) text-red-400">
 				Invalid or expired share link
+			</div>
+		);
+	}
+
+	if (flow.kind === "sign-in-required") {
+		return (
+			<div className="h-full flex flex-col items-center justify-center gap-3 bg-(--app-bg) text-(--app-text-muted)">
+				<p>
+					Sign in to open the shared workspace {shareQuery.data.workspaceName}.
+				</p>
+				<div className="flex gap-3">
+					<Link to="/auth/sign-in" className="text-cyan-400 hover:underline">
+						Sign in
+					</Link>
+					<Link to="/auth/sign-up" className="text-cyan-400 hover:underline">
+						Create account
+					</Link>
+				</div>
 			</div>
 		);
 	}

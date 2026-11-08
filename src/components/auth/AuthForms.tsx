@@ -1,10 +1,11 @@
+import { useRouter } from "@tanstack/react-router";
+import { Cable, LogIn, UserPlus } from "lucide-react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth-client";
-import { useRouter } from "@tanstack/react-router";
-import { Cable, LogIn, UserPlus } from "lucide-react";
-import { useState } from "react";
+import { takeShareRedirect } from "@/lib/share-flow";
 
 export function SignInForm() {
 	const [email, setEmail] = useState("");
@@ -25,7 +26,9 @@ export function SignInForm() {
 			if (result.error) {
 				setError(result.error.message ?? "Sign in failed");
 			} else {
-				router.navigate({ to: "/" });
+				const back = takeShareRedirect();
+				if (back) window.location.assign(back);
+				else router.navigate({ to: "/" });
 			}
 		} catch {
 			setError("An unexpected error occurred");
@@ -40,7 +43,9 @@ export function SignInForm() {
 				<div className="text-center mb-6 lg:mb-8">
 					<div className="flex items-center justify-center gap-2 lg:gap-3 mb-2 lg:mb-3">
 						<Cable className="text-cyan-400" size={28} />
-						<h1 className="text-xl lg:text-2xl font-bold text-(--app-text)">CableOps</h1>
+						<h1 className="text-xl lg:text-2xl font-bold text-(--app-text)">
+							CableOps
+						</h1>
 					</div>
 					<p className="text-(--app-text-muted) text-xs lg:text-sm">
 						Sign in to manage your cable topologies
@@ -123,7 +128,9 @@ export function SignUpForm() {
 			if (result.error) {
 				setError(result.error.message ?? "Sign up failed");
 			} else {
-				router.navigate({ to: "/" });
+				const back = takeShareRedirect();
+				if (back) window.location.assign(back);
+				else router.navigate({ to: "/" });
 			}
 		} catch {
 			setError("An unexpected error occurred");
@@ -138,7 +145,9 @@ export function SignUpForm() {
 				<div className="text-center mb-6 lg:mb-8">
 					<div className="flex items-center justify-center gap-2 lg:gap-3 mb-2 lg:mb-3">
 						<Cable className="text-cyan-400" size={28} />
-						<h1 className="text-xl lg:text-2xl font-bold text-(--app-text)">CableOps</h1>
+						<h1 className="text-xl lg:text-2xl font-bold text-(--app-text)">
+							CableOps
+						</h1>
 					</div>
 					<p className="text-(--app-text-muted) text-xs lg:text-sm">
 						Create your account to get started
