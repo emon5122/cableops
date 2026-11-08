@@ -10,10 +10,7 @@ import {
 } from "@/lib/topology-types";
 import { buildWorkspaceSnapshot } from "@/server/workspace-snapshot";
 import { collectLinkedWorkspaces } from "@/lib/linked-network";
-import {
-	planSnapshotLinkImport,
-	type SkippedLink,
-} from "@/lib/snapshot-links";
+import { planSnapshotLinkImport, type SkippedLink } from "@/lib/snapshot-links";
 import {
 	resolveWorkspaceAccess,
 	type WorkspaceAccess,
@@ -38,7 +35,7 @@ import {
 	workspaceSnapshotSchema,
 } from "@/lib/workspace-snapshot-schema";
 import { TRPCError, type TRPCRouterRecord } from "@trpc/server";
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { apiTokensRouter } from "./api-tokens-router";
 import { createTRPCRouter, publicProcedure } from "./init";
@@ -102,7 +99,7 @@ function isValidPlainIpv4(ip: string): boolean {
 function ipv4InSubnet(ip: string, network: number, mask: number): boolean {
 	const n = parseIpv4(ip);
 	if (n === null) return false;
-	return ((n & mask) >>> 0) === network;
+	return (n & mask) >>> 0 === network;
 }
 
 /** Strip CIDR suffix to get the plain IP part */
@@ -121,17 +118,18 @@ type WorkspaceWithAccess = {
 async function loadWorkspaceAccess(
 	workspaceIds: string[],
 	userId: string | null,
+	ex: DbExecutor = db,
 ): Promise<Map<string, WorkspaceWithAccess>> {
 	const ids = [...new Set(workspaceIds)];
 	const result = new Map<string, WorkspaceWithAccess>();
 	if (ids.length === 0) return result;
-	const rows = await db
+	const rows = await ex
 		.select()
 		.from(schema.workspaces)
 		.where(inArray(schema.workspaces.id, ids));
 	const memberOf = new Set<string>();
 	if (userId) {
-		const memberships = await db
+		const memberships = await ex
 			.select({ workspaceId: schema.workspaceMembers.workspaceId })
 			.from(schema.workspaceMembers)
 			.where(
@@ -209,6 +207,23 @@ async function requireDeviceEdit(
 	return device;
 }
 
+/** The device, after checking the caller may read its workspace. */
+async function requireDeviceRead(
+	deviceId: string,
+	userId: string | null,
+): Promise<typeof schema.devices.$inferSelect> {
+	const rows = await db
+		.select()
+		.from(schema.devices)
+		.where(eq(schema.devices.id, deviceId));
+	const device = rows[0];
+	if (!device) {
+		throw new TRPCError({ code: "NOT_FOUND", message: "Device not found" });
+	}
+	await requireWorkspaceAccess(device.workspaceId, userId, "read");
+	return device;
+}
+
 /** The annotation, after checking the caller may edit its workspace. */
 async function requireAnnotationEdit(
 	annotationId: string,
@@ -277,9 +292,10 @@ async function linksTouchingDevices(
 /** Cross-links touching any of the given workspaces. */
 async function linksTouchingWorkspaces(
 	workspaceIds: string[],
+	ex: DbExecutor = db,
 ): Promise<WorkspaceLinkRow[]> {
 	if (workspaceIds.length === 0) return [];
-	return db
+	return ex
 		.select()
 		.from(schema.workspaceLinks)
 		.where(
@@ -376,16 +392,18 @@ async function importSnapshotLinks(
 	links: SnapshotWorkspaceLink[],
 	deviceIdMap: Map<string, string>,
 	userId: string | null,
+	outerTx?: DbTx,
 ): Promise<{ imported: number; skipped: SkippedLink[] }> {
 	if (links.length === 0) return { imported: 0, skipped: [] };
 
 	const accessMap = await loadWorkspaceAccess(
 		[workspaceId, ...links.map((l) => l.remote.workspaceId)],
 		userId,
+		outerTx ?? db,
 	);
 	const remoteDeviceIds = [...new Set(links.map((l) => l.remote.deviceId))];
 	/* Same port-claim lock as workspaceLinks.create, on every device touched */
-	const plan = await db.transaction(async (tx) => {
+	const planAndCreate = async (tx: DbTx) => {
 		await lockDevices(tx, [...remoteDeviceIds, ...deviceIdMap.values()]);
 		const localDevices = await tx
 			.select()
@@ -433,7 +451,11 @@ async function importSnapshotLinks(
 			);
 		}
 		return planned;
-	});
+	};
+	/* Inside importSnapshot's transaction when given one */
+	const plan = outerTx
+		? await planAndCreate(outerTx)
+		: await db.transaction(planAndCreate);
 	return { imported: plan.create.length, skipped: plan.skipped };
 }
 
@@ -453,12 +475,14 @@ const workspacesRouter = {
 
 	get: publicProcedure
 		.input(z.object({ id: z.string() }))
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
 			const rows = await db
 				.select()
 				.from(schema.workspaces)
 				.where(eq(schema.workspaces.id, input.id));
-			return rows[0] ?? null;
+			if (!rows[0]) return null;
+			await requireWorkspaceAccess(input.id, ctx.userId, "read");
+			return rows[0];
 		}),
 
 	/** Get the current user's permission level for a workspace */
@@ -496,7 +520,9 @@ const workspacesRouter = {
 		}),
 
 	create: publicProcedure
-		.input(z.object({ name: z.string().min(1), ownerId: z.string().optional() }))
+		.input(
+			z.object({ name: z.string().min(1), ownerId: z.string().optional() }),
+		)
 		.mutation(async ({ input, ctx }) => {
 			if (input.ownerId && input.ownerId !== ctx.userId) {
 				throw new TRPCError({
@@ -532,7 +558,8 @@ const workspacesRouter = {
 	claimOwnership: publicProcedure
 		.input(z.object({ workspaceId: z.string() }))
 		.mutation(async ({ input, ctx }) => {
-			if (!ctx.userId) throw new Error("Must be signed in to claim a workspace");
+			if (!ctx.userId)
+				throw new Error("Must be signed in to claim a workspace");
 
 			const ws = await db
 				.select()
@@ -545,14 +572,25 @@ const workspacesRouter = {
 			const rows = await db
 				.update(schema.workspaces)
 				.set({ ownerId: ctx.userId })
-				.where(eq(schema.workspaces.id, input.workspaceId))
+				.where(
+					and(
+						eq(schema.workspaces.id, input.workspaceId),
+						isNull(schema.workspaces.ownerId),
+					),
+				)
 				.returning();
-			return rows[0] ?? null;
+			if (!rows[0]) throw new Error("Workspace already has an owner");
+			return rows[0];
 		}),
 
 	/** Toggle workspace mode between presentation and collaboration */
 	setMode: publicProcedure
-		.input(z.object({ workspaceId: z.string(), mode: z.enum(["presentation", "collaboration"]) }))
+		.input(
+			z.object({
+				workspaceId: z.string(),
+				mode: z.enum(["presentation", "collaboration"]),
+			}),
+		)
 		.mutation(async ({ input, ctx }) => {
 			if (!ctx.userId) throw new Error("Must be signed in");
 
@@ -562,7 +600,8 @@ const workspacesRouter = {
 				.where(eq(schema.workspaces.id, input.workspaceId));
 			const workspace = ws[0];
 			if (!workspace) throw new Error("Workspace not found");
-			if (workspace.ownerId !== ctx.userId) throw new Error("Only the owner can change workspace mode");
+			if (workspace.ownerId !== ctx.userId)
+				throw new Error("Only the owner can change workspace mode");
 
 			const rows = await db
 				.update(schema.workspaces)
@@ -639,7 +678,10 @@ const workspacesRouter = {
 					joinedAt: schema.workspaceMembers.joinedAt,
 				})
 				.from(schema.workspaceMembers)
-				.innerJoin(schema.user, eq(schema.workspaceMembers.userId, schema.user.id))
+				.innerJoin(
+					schema.user,
+					eq(schema.workspaceMembers.userId, schema.user.id),
+				)
 				.where(eq(schema.workspaceMembers.workspaceId, input.workspaceId));
 			return members;
 		}),
@@ -653,10 +695,16 @@ const workspacesRouter = {
 				.from(schema.workspaces)
 				.where(eq(schema.workspaces.id, input.workspaceId));
 			const ws = wsRows[0];
-			if (!ws || ws.ownerId !== ctx.userId) throw new Error("Only the owner can remove members");
+			if (!ws || ws.ownerId !== ctx.userId)
+				throw new Error("Only the owner can remove members");
 			await db
 				.delete(schema.workspaceMembers)
-				.where(eq(schema.workspaceMembers.id, input.memberId));
+				.where(
+					and(
+						eq(schema.workspaceMembers.id, input.memberId),
+						eq(schema.workspaceMembers.workspaceId, input.workspaceId),
+					),
+				);
 			return { success: true };
 		}),
 
@@ -692,39 +740,39 @@ const workspacesRouter = {
 				.from(schema.workspaces)
 				.where(eq(schema.workspaces.id, share.workspaceId));
 			const ws = wsRows[0];
-			if (!ws || ws.ownerId !== ctx.userId) throw new Error("Only the owner can delete share links");
+			if (!ws || ws.ownerId !== ctx.userId)
+				throw new Error("Only the owner can delete share links");
 			await db
 				.delete(schema.workspaceShares)
 				.where(eq(schema.workspaceShares.id, input.shareId));
 			return { success: true };
 		}),
 
-	listOwned: publicProcedure
-		.query(async ({ ctx }) => {
-			if (!ctx.userId) return [];
-			const owned = await db
-				.select()
-				.from(schema.workspaces)
-				.where(eq(schema.workspaces.ownerId, ctx.userId));
-			const results = await Promise.all(
-				owned.map(async (ws) => {
-					const memberCount = await db
-						.select({ count: sql<number>`count(*)` })
-						.from(schema.workspaceMembers)
-						.where(eq(schema.workspaceMembers.workspaceId, ws.id));
-					const shareCount = await db
-						.select({ count: sql<number>`count(*)` })
-						.from(schema.workspaceShares)
-						.where(eq(schema.workspaceShares.workspaceId, ws.id));
-					return {
-						...ws,
-						memberCount: Number(memberCount[0]?.count ?? 0),
-						shareCount: Number(shareCount[0]?.count ?? 0),
-					};
-				}),
-			);
-			return results;
-		}),
+	listOwned: publicProcedure.query(async ({ ctx }) => {
+		if (!ctx.userId) return [];
+		const owned = await db
+			.select()
+			.from(schema.workspaces)
+			.where(eq(schema.workspaces.ownerId, ctx.userId));
+		const results = await Promise.all(
+			owned.map(async (ws) => {
+				const memberCount = await db
+					.select({ count: sql<number>`count(*)` })
+					.from(schema.workspaceMembers)
+					.where(eq(schema.workspaceMembers.workspaceId, ws.id));
+				const shareCount = await db
+					.select({ count: sql<number>`count(*)` })
+					.from(schema.workspaceShares)
+					.where(eq(schema.workspaceShares.workspaceId, ws.id));
+				return {
+					...ws,
+					memberCount: Number(memberCount[0]?.count ?? 0),
+					shareCount: Number(shareCount[0]?.count ?? 0),
+				};
+			}),
+		);
+		return results;
+	}),
 
 	update: publicProcedure
 		.input(z.object({ id: z.string(), name: z.string().min(1) }))
@@ -742,15 +790,17 @@ const workspacesRouter = {
 		.input(z.object({ id: z.string() }))
 		.mutation(async ({ input, ctx }) => {
 			await requireWorkspaceAccess(input.id, ctx.userId, "owner");
-			return db
+			await db
 				.delete(schema.workspaces)
 				.where(eq(schema.workspaces.id, input.id));
+			return { success: true };
 		}),
 
 	createShare: publicProcedure
 		.input(z.object({ workspaceId: z.string() }))
 		.mutation(async ({ input, ctx }) => {
-			if (!ctx.userId) throw new Error("Must be signed in to create a share link");
+			if (!ctx.userId)
+				throw new Error("Must be signed in to create a share link");
 
 			const wsRows = await db
 				.select()
@@ -758,7 +808,8 @@ const workspacesRouter = {
 				.where(eq(schema.workspaces.id, input.workspaceId));
 			const ws = wsRows[0];
 			if (!ws) throw new Error("Workspace not found");
-			if (ws.ownerId !== ctx.userId) throw new Error("Only the owner can share a workspace");
+			if (ws.ownerId !== ctx.userId)
+				throw new Error("Only the owner can share a workspace");
 
 			const existing = await db
 				.select()
@@ -798,9 +849,9 @@ const workspacesRouter = {
 				.where(eq(schema.workspaces.id, share.workspaceId));
 			return wsRows[0]
 				? {
-					workspaceId: wsRows[0].id,
-					workspaceName: wsRows[0].name,
-				}
+						workspaceId: wsRows[0].id,
+						workspaceName: wsRows[0].name,
+					}
 				: null;
 		}),
 
@@ -821,162 +872,178 @@ const workspacesRouter = {
 		.mutation(async ({ input, ctx }) => {
 			await requireWorkspaceAccess(input.workspaceId, ctx.userId, "edit");
 
-			/* Replacing the devices cascades away every cross-link of this
+			/* Validate before deleting anything: a snapshot that would violate
+			   a unique index must not wipe the workspace. */
+			const seenPorts = new Set<string>();
+			for (const i of input.snapshot.interfaces) {
+				const key = `${i.deviceId}:${i.portNumber}`;
+				if (seenPorts.has(key)) {
+					throw new TRPCError({
+						code: "BAD_REQUEST",
+						message: `Snapshot has two interfaces for the same device port (${key})`,
+					});
+				}
+				seenPorts.add(key);
+			}
+
+			return db.transaction(async (tx) => {
+				/* Replacing the devices cascades away every cross-link of this
 			   workspace (also ones into workspaces the importer cannot edit);
 			   report how many, next to how many the snapshot restores. */
-			const linksRemoved = (
-				await linksTouchingWorkspaces([input.workspaceId])
-			).length;
+				const linksRemoved = (
+					await linksTouchingWorkspaces([input.workspaceId], tx)
+				).length;
 
-			const currentDevices = await db
-				.select()
-				.from(schema.devices)
-				.where(eq(schema.devices.workspaceId, input.workspaceId));
-			const currentDeviceIds = currentDevices.map((d) => d.id);
+				const currentDevices = await tx
+					.select()
+					.from(schema.devices)
+					.where(eq(schema.devices.workspaceId, input.workspaceId));
+				const currentDeviceIds = currentDevices.map((d) => d.id);
+				await lockDevices(tx, currentDeviceIds);
 
-			if (currentDeviceIds.length > 0) {
-				await db
-					.delete(schema.interfaces)
-					.where(inArray(schema.interfaces.deviceId, currentDeviceIds));
-				await db
-					.delete(schema.routes)
-					.where(inArray(schema.routes.deviceId, currentDeviceIds));
-			}
-			await db
-				.delete(schema.connections)
-				.where(eq(schema.connections.workspaceId, input.workspaceId));
-			await db
-				.delete(schema.annotations)
-				.where(eq(schema.annotations.workspaceId, input.workspaceId));
-			await db
-				.delete(schema.devices)
-				.where(eq(schema.devices.workspaceId, input.workspaceId));
+				if (currentDeviceIds.length > 0) {
+					await tx
+						.delete(schema.interfaces)
+						.where(inArray(schema.interfaces.deviceId, currentDeviceIds));
+					await tx
+						.delete(schema.routes)
+						.where(inArray(schema.routes.deviceId, currentDeviceIds));
+				}
+				await tx
+					.delete(schema.connections)
+					.where(eq(schema.connections.workspaceId, input.workspaceId));
+				await tx
+					.delete(schema.annotations)
+					.where(eq(schema.annotations.workspaceId, input.workspaceId));
+				await tx
+					.delete(schema.devices)
+					.where(eq(schema.devices.workspaceId, input.workspaceId));
 
-			const deviceIdMap = new Map<string, string>();
-			for (const d of input.snapshot.devices) {
-				const newId = crypto.randomUUID();
-				deviceIdMap.set(d.id, newId);
-			}
+				const deviceIdMap = new Map<string, string>();
+				for (const d of input.snapshot.devices) {
+					const newId = crypto.randomUUID();
+					deviceIdMap.set(d.id, newId);
+				}
 
-			if (input.snapshot.devices.length > 0) {
-				await db.insert(schema.devices).values(
-					input.snapshot.devices.map((d) => ({
-						id: deviceIdMap.get(d.id)!,
-						workspaceId: input.workspaceId,
-						name: d.name,
-						deviceType: d.deviceType,
-						color: d.color,
-						portCount: d.portCount,
-						positionX: d.positionX,
-						positionY: d.positionY,
-						maxSpeed: d.maxSpeed ?? null,
-						ipForwarding: d.ipForwarding ?? false,
-					})),
-				);
-			}
+				if (input.snapshot.devices.length > 0) {
+					await tx.insert(schema.devices).values(
+						input.snapshot.devices.map((d) => ({
+							id: deviceIdMap.get(d.id)!,
+							workspaceId: input.workspaceId,
+							name: d.name,
+							deviceType: d.deviceType,
+							color: d.color,
+							portCount: d.portCount,
+							positionX: d.positionX,
+							positionY: d.positionY,
+							maxSpeed: d.maxSpeed ?? null,
+							ipForwarding: d.ipForwarding ?? false,
+						})),
+					);
+				}
 
-			if (input.snapshot.interfaces.length > 0) {
-				await db.insert(schema.interfaces).values(
-					input.snapshot.interfaces
-						.map((i) => ({
-							id: crypto.randomUUID(),
-							deviceId: deviceIdMap.get(i.deviceId) ?? "",
-							portNumber: i.portNumber,
-							alias: i.alias ?? null,
-							reserved: i.reserved,
-							reservedLabel: i.reservedLabel ?? null,
-							speed: i.speed ?? null,
-							vlan: i.vlan ?? null,
-							ipAddress: i.ipAddress ?? null,
-							macAddress: i.macAddress ?? null,
-							portMode: i.portMode ?? null,
-							portRole: i.portRole ?? null,
-							dhcpEnabled: i.dhcpEnabled ?? false,
-							dhcpRangeStart: i.dhcpRangeStart ?? null,
-							dhcpRangeEnd: i.dhcpRangeEnd ?? null,
-							ssid: i.ssid ?? null,
-							wifiPassword: i.wifiPassword ?? null,
-							natEnabled: i.natEnabled ?? false,
-							gateway: i.gateway ?? null,
-						}))
-						.filter((i) => i.deviceId.length > 0),
-				);
-			}
+				if (input.snapshot.interfaces.length > 0) {
+					await tx.insert(schema.interfaces).values(
+						input.snapshot.interfaces
+							.map((i) => ({
+								id: crypto.randomUUID(),
+								deviceId: deviceIdMap.get(i.deviceId) ?? "",
+								portNumber: i.portNumber,
+								alias: i.alias ?? null,
+								reserved: i.reserved,
+								reservedLabel: i.reservedLabel ?? null,
+								speed: i.speed ?? null,
+								vlan: i.vlan ?? null,
+								ipAddress: i.ipAddress ?? null,
+								macAddress: i.macAddress ?? null,
+								portMode: i.portMode ?? null,
+								portRole: i.portRole ?? null,
+								dhcpEnabled: i.dhcpEnabled ?? false,
+								dhcpRangeStart: i.dhcpRangeStart ?? null,
+								dhcpRangeEnd: i.dhcpRangeEnd ?? null,
+								ssid: i.ssid ?? null,
+								wifiPassword: i.wifiPassword ?? null,
+								natEnabled: i.natEnabled ?? false,
+								gateway: i.gateway ?? null,
+							}))
+							.filter((i) => i.deviceId.length > 0),
+					);
+				}
 
-			if (input.snapshot.connections.length > 0) {
-				await db.insert(schema.connections).values(
-					input.snapshot.connections
-						.map((c) => ({
+				if (input.snapshot.connections.length > 0) {
+					await tx.insert(schema.connections).values(
+						input.snapshot.connections
+							.map((c) => ({
+								id: crypto.randomUUID(),
+								workspaceId: input.workspaceId,
+								deviceAId: deviceIdMap.get(c.deviceAId) ?? "",
+								portA: c.portA,
+								deviceBId: deviceIdMap.get(c.deviceBId) ?? "",
+								portB: c.portB,
+								speed: c.speed ?? null,
+								connectionType: c.connectionType ?? "wired",
+							}))
+							.filter((c) => c.deviceAId.length > 0 && c.deviceBId.length > 0),
+					);
+				}
+
+				if (input.snapshot.routes.length > 0) {
+					await tx.insert(schema.routes).values(
+						input.snapshot.routes
+							.map((r) => ({
+								id: crypto.randomUUID(),
+								deviceId: deviceIdMap.get(r.deviceId) ?? "",
+								destination: r.destination,
+								nextHop: r.nextHop,
+								interfacePort: r.interfacePort ?? null,
+								metric: r.metric ?? 100,
+							}))
+							.filter((r) => r.deviceId.length > 0),
+					);
+				}
+
+				if (input.snapshot.annotations.length > 0) {
+					await tx.insert(schema.annotations).values(
+						input.snapshot.annotations.map((a) => ({
 							id: crypto.randomUUID(),
 							workspaceId: input.workspaceId,
-							deviceAId: deviceIdMap.get(c.deviceAId) ?? "",
-							portA: c.portA,
-							deviceBId: deviceIdMap.get(c.deviceBId) ?? "",
-							portB: c.portB,
-							speed: c.speed ?? null,
-							connectionType: c.connectionType ?? "wired",
-						}))
-						.filter(
-							(c) => c.deviceAId.length > 0 && c.deviceBId.length > 0,
-						),
-				);
-			}
+							kind: a.kind,
+							label: a.label ?? null,
+							x: a.x,
+							y: a.y,
+							width: a.width,
+							height: a.height,
+							color: a.color,
+						})),
+					);
+				}
 
-			if (input.snapshot.routes.length > 0) {
-				await db.insert(schema.routes).values(
-					input.snapshot.routes
-						.map((r) => ({
-							id: crypto.randomUUID(),
-							deviceId: deviceIdMap.get(r.deviceId) ?? "",
-							destination: r.destination,
-							nextHop: r.nextHop,
-							interfacePort: r.interfacePort ?? null,
-							metric: r.metric ?? 100,
-						}))
-						.filter((r) => r.deviceId.length > 0),
-				);
-			}
+				if (input.snapshot.workspace.name?.trim()) {
+					await tx
+						.update(schema.workspaces)
+						.set({ name: input.snapshot.workspace.name.trim() })
+						.where(eq(schema.workspaces.id, input.workspaceId));
+				}
 
-			if (input.snapshot.annotations.length > 0) {
-				await db.insert(schema.annotations).values(
-					input.snapshot.annotations.map((a) => ({
-						id: crypto.randomUUID(),
-						workspaceId: input.workspaceId,
-						kind: a.kind,
-						label: a.label ?? null,
-						x: a.x,
-						y: a.y,
-						width: a.width,
-						height: a.height,
-						color: a.color,
-					})),
-				);
-			}
-
-			if (input.snapshot.workspace.name?.trim()) {
-				await db
-					.update(schema.workspaces)
-					.set({ name: input.snapshot.workspace.name.trim() })
-					.where(eq(schema.workspaces.id, input.workspaceId));
-			}
-
-			/* Devices were just replaced (which dropped their old cross-links via
+				/* Devices were just replaced (which dropped their old cross-links via
 			   the FK cascade); recreate the snapshot's links where possible. */
-			const linkReport = await importSnapshotLinks(
-				input.workspaceId,
-				input.snapshot.workspaceLinks ?? [],
-				deviceIdMap,
-				ctx.userId,
-			);
+				const linkReport = await importSnapshotLinks(
+					input.workspaceId,
+					input.snapshot.workspaceLinks ?? [],
+					deviceIdMap,
+					ctx.userId,
+					tx,
+				);
 
-			return {
-				success: true,
-				devicesImported: input.snapshot.devices.length,
-				connectionsImported: input.snapshot.connections.length,
-				linksRemoved,
-				linksImported: linkReport.imported,
-				linksSkipped: linkReport.skipped,
-			};
+				return {
+					success: true,
+					devicesImported: input.snapshot.devices.length,
+					connectionsImported: input.snapshot.connections.length,
+					linksRemoved,
+					linksImported: linkReport.imported,
+					linksSkipped: linkReport.skipped,
+				};
+			});
 		}),
 } satisfies TRPCRouterRecord;
 
@@ -985,12 +1052,13 @@ const workspacesRouter = {
 const devicesRouter = {
 	list: publicProcedure
 		.input(z.object({ workspaceId: z.string() }))
-		.query(({ input }) =>
-			db
+		.query(async ({ input, ctx }) => {
+			await requireWorkspaceAccess(input.workspaceId, ctx.userId, "read");
+			return db
 				.select()
 				.from(schema.devices)
-				.where(eq(schema.devices.workspaceId, input.workspaceId)),
-		),
+				.where(eq(schema.devices.workspaceId, input.workspaceId));
+		}),
 
 	create: publicProcedure
 		.input(
@@ -1047,10 +1115,22 @@ const devicesRouter = {
 			if (!hasValues(fields)) return device;
 			return db.transaction(async (tx) => {
 				const newCount = fields.portCount;
-				if (newCount !== undefined && newCount < device.portCount) {
+				if (newCount !== undefined) {
 					/* Ports above the new count must be free of cables and of
-					   cross-links (which the far workspace sees too). */
+					   cross-links (which the far workspace sees too). Lock first,
+					   then compare against the locked row's portCount. */
 					await lockDevices(tx, [id]);
+				}
+				const locked =
+					newCount !== undefined
+						? (
+								await tx
+									.select({ portCount: schema.devices.portCount })
+									.from(schema.devices)
+									.where(eq(schema.devices.id, id))
+							)[0]
+						: undefined;
+				if (newCount !== undefined && locked && newCount < locked.portCount) {
 					const cables = await tx
 						.select()
 						.from(schema.connections)
@@ -1088,17 +1168,19 @@ const devicesRouter = {
 		)
 		.mutation(async ({ input, ctx }) => {
 			await requireDeviceEdit(input.id, ctx.userId);
-			return db
+			await db
 				.update(schema.devices)
 				.set({ positionX: input.positionX, positionY: input.positionY })
 				.where(eq(schema.devices.id, input.id));
+			return { success: true };
 		}),
 
 	delete: publicProcedure
 		.input(z.object({ id: z.string() }))
 		.mutation(async ({ input, ctx }) => {
 			await requireDeviceEdit(input.id, ctx.userId);
-			return db.delete(schema.devices).where(eq(schema.devices.id, input.id));
+			await db.delete(schema.devices).where(eq(schema.devices.id, input.id));
+			return { success: true };
 		}),
 } satisfies TRPCRouterRecord;
 
@@ -1107,12 +1189,13 @@ const devicesRouter = {
 const connectionsRouter = {
 	list: publicProcedure
 		.input(z.object({ workspaceId: z.string() }))
-		.query(({ input }) =>
-			db
+		.query(async ({ input, ctx }) => {
+			await requireWorkspaceAccess(input.workspaceId, ctx.userId, "read");
+			return db
 				.select()
 				.from(schema.connections)
-				.where(eq(schema.connections.workspaceId, input.workspaceId)),
-		),
+				.where(eq(schema.connections.workspaceId, input.workspaceId));
+		}),
 
 	create: publicProcedure
 		.input(
@@ -1142,11 +1225,15 @@ const connectionsRouter = {
 				const linkedDevices = await tx
 					.select()
 					.from(schema.devices)
-					.where(inArray(schema.devices.id, [input.deviceAId, input.deviceBId]));
+					.where(
+						inArray(schema.devices.id, [input.deviceAId, input.deviceBId]),
+					);
 				const deviceA = linkedDevices.find((d) => d.id === input.deviceAId);
 				const deviceB = linkedDevices.find((d) => d.id === input.deviceBId);
 				if (!deviceA || !deviceB) {
-					throw new Error("Both connection endpoints must reference valid devices");
+					throw new Error(
+						"Both connection endpoints must reference valid devices",
+					);
 				}
 				if (
 					deviceA.workspaceId !== input.workspaceId ||
@@ -1172,17 +1259,25 @@ const connectionsRouter = {
 					/* Port 0 is the virtual WiFi interface — multiple WiFi clients can share it */
 					if (
 						input.portA !== 0 &&
-						((conn.deviceAId === input.deviceAId && conn.portA === input.portA) ||
-						(conn.deviceBId === input.deviceAId && conn.portB === input.portA))
+						((conn.deviceAId === input.deviceAId &&
+							conn.portA === input.portA) ||
+							(conn.deviceBId === input.deviceAId &&
+								conn.portB === input.portA))
 					) {
-						throw new Error(`Port ${input.portA} on device A is already connected`);
+						throw new Error(
+							`Port ${input.portA} on device A is already connected`,
+						);
 					}
 					if (
 						input.portB !== 0 &&
-						((conn.deviceAId === input.deviceBId && conn.portA === input.portB) ||
-						(conn.deviceBId === input.deviceBId && conn.portB === input.portB))
+						((conn.deviceAId === input.deviceBId &&
+							conn.portA === input.portB) ||
+							(conn.deviceBId === input.deviceBId &&
+								conn.portB === input.portB))
 					) {
-						throw new Error(`Port ${input.portB} on device B is already connected`);
+						throw new Error(
+							`Port ${input.portB} on device B is already connected`,
+						);
 					}
 				}
 
@@ -1252,9 +1347,10 @@ const connectionsRouter = {
 				});
 			}
 			await requireWorkspaceAccess(conn.workspaceId, ctx.userId, "edit");
-			return db
+			await db
 				.delete(schema.connections)
 				.where(eq(schema.connections.id, input.id));
+			return { success: true };
 		}),
 } satisfies TRPCRouterRecord;
 
@@ -1263,16 +1359,18 @@ const connectionsRouter = {
 const interfacesRouter = {
 	list: publicProcedure
 		.input(z.object({ deviceId: z.string() }))
-		.query(({ input }) =>
-			db
+		.query(async ({ input, ctx }) => {
+			await requireDeviceRead(input.deviceId, ctx.userId);
+			return db
 				.select()
 				.from(schema.interfaces)
-				.where(eq(schema.interfaces.deviceId, input.deviceId)),
-		),
+				.where(eq(schema.interfaces.deviceId, input.deviceId));
+		}),
 
 	listByWorkspace: publicProcedure
 		.input(z.object({ workspaceId: z.string() }))
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
+			await requireWorkspaceAccess(input.workspaceId, ctx.userId, "read");
 			const wsDevices = await db
 				.select()
 				.from(schema.devices)
@@ -1396,7 +1494,9 @@ const interfacesRouter = {
 								parsed &&
 								(parsed.ip & seg.gateway.mask) >>> 0 !== seg.gateway.network
 							) {
-								const gwDev = wsDevices.find((d) => d.id === seg.gateway?.deviceId);
+								const gwDev = wsDevices.find(
+									(d) => d.id === seg.gateway?.deviceId,
+								);
 								throw new Error(
 									`IP ${input.ipAddress} is not in subnet ${seg.subnet} (gateway: ${gwDev?.name ?? "?"} P${seg.gateway.portNumber})`,
 								);
@@ -1418,7 +1518,10 @@ const interfacesRouter = {
 					if (portParsed) {
 						const gwPlain = stripCidr(input.gateway);
 						const gwNum = parseIpv4(gwPlain);
-						if (gwNum !== null && ((gwNum & portParsed.mask) >>> 0) !== portParsed.network) {
+						if (
+							gwNum !== null &&
+							(gwNum & portParsed.mask) >>> 0 !== portParsed.network
+						) {
 							throw new Error(
 								`Gateway ${input.gateway} is not in subnet ${ipToString(portParsed.network)}/${portParsed.cidr}`,
 							);
@@ -1428,10 +1531,12 @@ const interfacesRouter = {
 			}
 
 			/* ── DHCP range validation ── */
-			const effectiveDhcpEnabled = input.dhcpEnabled ?? match?.dhcpEnabled ?? false;
+			const effectiveDhcpEnabled =
+				input.dhcpEnabled ?? match?.dhcpEnabled ?? false;
 			const effectiveDhcpStart =
 				input.dhcpRangeStart ?? match?.dhcpRangeStart ?? null;
-			const effectiveDhcpEnd = input.dhcpRangeEnd ?? match?.dhcpRangeEnd ?? null;
+			const effectiveDhcpEnd =
+				input.dhcpRangeEnd ?? match?.dhcpRangeEnd ?? null;
 			const effectiveInterfaceIp = input.ipAddress ?? match?.ipAddress ?? null;
 
 			// Only validate DHCP ranges when ranges are actually provided.
@@ -1439,14 +1544,10 @@ const interfacesRouter = {
 			if (effectiveDhcpStart || effectiveDhcpEnd) {
 				if (effectiveDhcpEnabled) {
 					if (!effectiveDhcpStart || !effectiveDhcpEnd) {
-						throw new Error(
-							"DHCP range requires both start and end addresses",
-						);
+						throw new Error("DHCP range requires both start and end addresses");
 					}
 					if (!effectiveInterfaceIp) {
-						throw new Error(
-							"DHCP requires an interface IP in CIDR format",
-						);
+						throw new Error("DHCP requires an interface IP in CIDR format");
 					}
 
 					const iface = parseIp(effectiveInterfaceIp);
@@ -1469,9 +1570,7 @@ const interfacesRouter = {
 						!ipv4InSubnet(effectiveDhcpStart, iface.network, iface.mask) ||
 						!ipv4InSubnet(effectiveDhcpEnd, iface.network, iface.mask)
 					) {
-						throw new Error(
-							"DHCP range must be inside the interface subnet",
-						);
+						throw new Error("DHCP range must be inside the interface subnet");
 					}
 
 					const wsDevices = await db
@@ -1524,17 +1623,12 @@ const interfacesRouter = {
 				}
 			}
 
-			/* ── Upsert logic ── */
-			if (match) {
-				const { deviceId: _d, portNumber: _p, ...fields } = input;
-				const rows = await db
-					.update(schema.interfaces)
-					.set(fields)
-					.where(eq(schema.interfaces.id, match.id))
-					.returning();
-				return rows[0] ?? null;
-			}
-
+			/* ── Upsert logic: one atomic statement, so a concurrent double
+			   submit updates instead of failing on the unique index ── */
+			const { deviceId: _d, portNumber: _p, ...updatable } = input;
+			const onConflict = Object.fromEntries(
+				Object.entries(updatable).filter(([, v]) => v !== undefined),
+			);
 			const id = crypto.randomUUID();
 			const rows = await db
 				.insert(schema.interfaces)
@@ -1559,6 +1653,13 @@ const interfacesRouter = {
 					natEnabled: input.natEnabled ?? false,
 					gateway: input.gateway ?? null,
 				})
+				.onConflictDoUpdate({
+					target: [schema.interfaces.deviceId, schema.interfaces.portNumber],
+					set:
+						Object.keys(onConflict).length > 0
+							? onConflict
+							: { portNumber: input.portNumber },
+				})
 				.returning();
 			return rows[0] ?? null;
 		}),
@@ -1569,12 +1670,13 @@ const interfacesRouter = {
 const routesRouter = {
 	list: publicProcedure
 		.input(z.object({ deviceId: z.string() }))
-		.query(({ input }) =>
-			db
+		.query(async ({ input, ctx }) => {
+			await requireDeviceRead(input.deviceId, ctx.userId);
+			return db
 				.select()
 				.from(schema.routes)
-				.where(eq(schema.routes.deviceId, input.deviceId)),
-		),
+				.where(eq(schema.routes.deviceId, input.deviceId));
+		}),
 
 	upsert: publicProcedure
 		.input(
@@ -1596,7 +1698,10 @@ const routesRouter = {
 					.from(schema.routes)
 					.where(eq(schema.routes.id, input.id));
 				if (existing[0]?.deviceId !== device.id) {
-					throw new TRPCError({ code: "NOT_FOUND", message: "Route not found" });
+					throw new TRPCError({
+						code: "NOT_FOUND",
+						message: "Route not found",
+					});
 				}
 			}
 
@@ -1679,12 +1784,13 @@ const routesRouter = {
 const annotationsRouter = {
 	list: publicProcedure
 		.input(z.object({ workspaceId: z.string() }))
-		.query(({ input }) =>
-			db
+		.query(async ({ input, ctx }) => {
+			await requireWorkspaceAccess(input.workspaceId, ctx.userId, "read");
+			return db
 				.select()
 				.from(schema.annotations)
-				.where(eq(schema.annotations.workspaceId, input.workspaceId)),
-		),
+				.where(eq(schema.annotations.workspaceId, input.workspaceId));
+		}),
 
 	create: publicProcedure
 		.input(
@@ -1749,9 +1855,10 @@ const annotationsRouter = {
 		.input(z.object({ id: z.string() }))
 		.mutation(async ({ input, ctx }) => {
 			await requireAnnotationEdit(input.id, ctx.userId);
-			return db
+			await db
 				.delete(schema.annotations)
 				.where(eq(schema.annotations.id, input.id));
+			return { success: true };
 		}),
 } satisfies TRPCRouterRecord;
 
@@ -1850,7 +1957,8 @@ const workspaceLinksRouter = {
 				.from(schema.workspaceLinks)
 				.where(eq(schema.workspaceLinks.id, input.id));
 			const link = existing[0];
-			if (!link) throw new TRPCError({ code: "NOT_FOUND", message: "Link not found" });
+			if (!link)
+				throw new TRPCError({ code: "NOT_FOUND", message: "Link not found" });
 			const accessMap = await loadWorkspaceAccess(
 				[link.workspaceAId, link.workspaceBId],
 				ctx.userId,
@@ -1884,7 +1992,8 @@ const workspaceLinksRouter = {
 				.from(schema.workspaceLinks)
 				.where(eq(schema.workspaceLinks.id, input.id));
 			const link = existing[0];
-			if (!link) throw new TRPCError({ code: "NOT_FOUND", message: "Link not found" });
+			if (!link)
+				throw new TRPCError({ code: "NOT_FOUND", message: "Link not found" });
 			const accessMap = await loadWorkspaceAccess(
 				[link.workspaceAId, link.workspaceBId],
 				ctx.userId,
@@ -1936,7 +2045,10 @@ const workspaceLinksRouter = {
 	targetDevices: publicProcedure
 		.input(z.object({ workspaceId: z.string() }))
 		.query(async ({ input, ctx }) => {
-			const accessMap = await loadWorkspaceAccess([input.workspaceId], ctx.userId);
+			const accessMap = await loadWorkspaceAccess(
+				[input.workspaceId],
+				ctx.userId,
+			);
 			if (!accessMap.get(input.workspaceId)?.access.canEdit) {
 				throw new TRPCError({
 					code: "FORBIDDEN",
@@ -2025,7 +2137,10 @@ const workspaceLinksRouter = {
 				if (!nodes.has(wsId)) outsideIds.add(wsId);
 			}
 		}
-		const outsideAccess = await loadWorkspaceAccess([...outsideIds], ctx.userId);
+		const outsideAccess = await loadWorkspaceAccess(
+			[...outsideIds],
+			ctx.userId,
+		);
 		const lockedKeys = new Map<string, string>();
 		for (const wsId of outsideIds) {
 			const entry = outsideAccess.get(wsId);
@@ -2084,7 +2199,11 @@ const workspaceLinksRouter = {
 		.query(async ({ input, ctx }) => {
 			const start = await loadWorkspaceAccess([input.workspaceId], ctx.userId);
 			const startWs = start.get(input.workspaceId);
-			if (!startWs) throw new TRPCError({ code: "NOT_FOUND", message: "Workspace not found" });
+			if (!startWs)
+				throw new TRPCError({
+					code: "NOT_FOUND",
+					message: "Workspace not found",
+				});
 
 			/* Breadth-first over links, loading access for each new workspace */
 			const access = new Map<string, WorkspaceWithAccess>(start);
@@ -2104,7 +2223,10 @@ const workspaceLinksRouter = {
 				for (const [id, entry] of loaded) access.set(id, entry);
 				frontier = [];
 				for (const id of fresh) {
-					if (access.get(id)?.access.canRead && readable.size < MAX_LINKED_WORKSPACES) {
+					if (
+						access.get(id)?.access.canRead &&
+						readable.size < MAX_LINKED_WORKSPACES
+					) {
 						readable.add(id);
 						frontier.push(id);
 					}
