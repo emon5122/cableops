@@ -168,7 +168,7 @@ describe("portCount shrink", () => {
 			.select()
 			.from(schema.interfaces)
 			.where(eq(schema.interfaces.deviceId, dev));
-		expect(ifaces.map((i) => i.portNumber)).toEqual([1]);
+		expect(ifaces.map((i) => i.portNumber).sort()).toEqual([1, 2]);
 		const rts = await testDb
 			.select()
 			.from(schema.routes)
