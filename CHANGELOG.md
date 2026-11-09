@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.6.0](https://github.com/emon5122/cableops/compare/v1.5.2...v1.6.0) (2026-11-08)
+
+
+### Features
+
+* cross-workspace link UI, site map and linked-site insights ([e60fbe2](https://github.com/emon5122/cableops/commit/e60fbe24e502f10ead8293bebd8577a2d9778056))
+* cross-workspace links data model, API, union analyzer and snapshot support ([d578797](https://github.com/emon5122/cableops/commit/d578797a5b942118f3a3d7980dcda2e35e29ba86))
+* scoped API tokens, read-only MCP endpoint and cableops CLI for agents ([1159155](https://github.com/emon5122/cableops/commit/1159155c6c8785f219c959a50d48cbf987075fb9))
+
+
+### Bug Fixes
+
+* check workspace access on every mutation and on snapshot export ([fa9a8fa](https://github.com/emon5122/cableops/commit/fa9a8fa7fd4b1df362990c9235ace740366f5b5f))
+* gate read endpoints, atomic importSnapshot, scoped removeMember, guarded claimOwnership ([41ee63e](https://github.com/emon5122/cableops/commit/41ee63e7ad91c2c987570b1d51d2bbad1eef3759))
+* **mcp:** redact WiFi passwords from MCP snapshots; cli refuses non-https CABLEOPS_URL ([7957820](https://github.com/emon5122/cableops/commit/7957820c066f35c53d17884dd27b5370c96a0938))
+* require sign-in on share links (no anonymous read), serialize IP-uniqueness check, drop interfaces/routes above shrunk portCount, refresh access comment ([0808b38](https://github.com/emon5122/cableops/commit/0808b38d1804fbf00a2c12757b7bf31dbe473433))
+* show the workspace next to device names in linked-site insights ([7115a74](https://github.com/emon5122/cableops/commit/7115a74fe62a4376add0bc83f2742788e904a8b6))
+* workspace-link review follow-ups (port race, shrink, cap, limits, import) ([c998069](https://github.com/emon5122/cableops/commit/c998069ce247309e2fa6273f0038c8b494da5ed5))
+
 ## [1.5.2](https://github.com/emon5122/cableops/compare/v1.5.1...v1.5.2) (2026-02-23)
 
 
