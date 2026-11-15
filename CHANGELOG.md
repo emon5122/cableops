@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.1](https://github.com/emon5122/cableops/compare/v1.6.0...v1.6.1) (2026-11-15)
+
+
+### Bug Fixes
+
+* **deps:** update drizzle-orm to 0.45.4 (SQL injection fix) ([#30](https://github.com/emon5122/cableops/issues/30)) ([78fb9c2](https://github.com/emon5122/cableops/commit/78fb9c246772f1d3e910a40fa09a30bc4d64a843))
+* **deps:** update jspdf to 4.2.1 (2 GHSA) ([#29](https://github.com/emon5122/cableops/issues/29)) ([7965015](https://github.com/emon5122/cableops/commit/79650151c617080e32135535ddf04b438b295b33))
+
 ## [1.6.0](https://github.com/emon5122/cableops/compare/v1.5.2...v1.6.0) (2026-11-08)
 
 
